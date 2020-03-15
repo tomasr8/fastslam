@@ -2,16 +2,15 @@ import numpy as np
 import math
 import time
 
-def find_neg_cycle(edges: list, source, N):
-    V = 2*N + 1
-    E = 2*N*N + 2*N
-    source = 2*N
 
+def find_neg_cycle(edges: list, M: int, N: int):
+    V = M+N + 1
+    E = 2*M*N + (M+N)
+    source = M+N
 
-    dist = np.full(2*N + 1, np.inf)
+    dist = np.full(V, np.inf)
     dist[source] = 0
-    parent = np.full((2*N + 1, 2), -1)
-
+    parent = np.full((V, 2), -1)
 
     start = time.time()
     for _ in range(E):
@@ -25,7 +24,7 @@ def find_neg_cycle(edges: list, source, N):
                 updated = True
                 last_updated = v
                 parent[v, :] = [u, uf]
-            
+
         if not updated:
             break
 
@@ -37,14 +36,14 @@ def find_neg_cycle(edges: list, source, N):
     for _ in range(V):
         y = parent[y, 0]
 
-    min_uf = math.inf
+    delta = math.inf
     cycle = []
     curr = y
     while True:
         cycle.append(curr)
 
         uf = parent[curr, 1]
-        min_uf = min([min_uf, uf])
+        delta = min([delta, uf])
 
         if curr == y and len(cycle) > 1:
             break
@@ -52,4 +51,4 @@ def find_neg_cycle(edges: list, source, N):
         curr = parent[curr, 0]
 
     cycle.reverse()
-    return [min_uf, cycle]
+    return [delta, cycle]

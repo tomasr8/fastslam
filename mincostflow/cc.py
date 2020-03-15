@@ -6,10 +6,10 @@ def cycle_canceling(matrix: Matrix):
 
     iters = 0
     while True:
-        residual_edges = ResidualMatrix.collect_edges(matrix)
-        source = 2*matrix.N
+        residual_edges = ResidualMatrix.to_edges(matrix)
+        source = matrix.M + matrix.N
 
-        delta, cycle = find_neg_cycle(residual_edges, source, matrix.N)
+        delta, cycle = find_neg_cycle(residual_edges, matrix.M, matrix.N)
 
         if delta > 0:
             length = len(cycle)
@@ -17,16 +17,12 @@ def cycle_canceling(matrix: Matrix):
                 u = cycle[i]
                 v = cycle[i + 1]
 
-                if u < matrix.N: # forward edge
-                    matrix.add_flow(u, v - matrix.N, delta)
+                if u < matrix.M:  # forward edge
+                    matrix.add_flow(u, v - matrix.M, delta)
                 else:
-                    matrix.add_flow(v, u - matrix.N, -delta)
-
+                    matrix.add_flow(v, u - matrix.M, -delta)
         else:
             break
-
-        # if iters == 3:
-        #     break
 
         iters += 1
 

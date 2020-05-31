@@ -6,23 +6,8 @@ import matplotlib.pyplot as plt
 from filterpy.monte_carlo import systematic_resample
 
 from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
-
-class Particle(object):
-    def __init__(self, x, y, theta, n_landmarks, w):
-        self.x = x
-        self.y = y
-        self.theta = theta
-        self.n_landmarks = n_landmarks
-        self.w = w
-        self.landmark_means = np.zeros((n_landmarks, 2))
-        self.landmark_covariances = np.zeros((n_landmarks, 2, 2))
-
-    def copy(self):
-        p = Particle(self.x, self.y, self.theta, self.n_landmarks, self.w)
-        p.landmark_means = np.copy(self.landmark_means)
-        p.landmark_covariances = np.copy(self.landmark_covariances)
-
-        return p
+from particle import Particle
+from data_association import associate_landmarks_measurements
 
 
 def get_initial_particles(n, xlim, ylim, n_landmarks):
@@ -92,36 +77,35 @@ def predict(particles, u, dt, sigmas):
     return particles
 
 
-def update(particles, landmark_indices, landmarks, z_real, observation_variance):
-    for i in landmark_indices:
-        landmark = landmarks[i]
+def update(particles, landmark_indices, z_real, observation_variance):
+    z_real = z_real[landmark_indices]
 
-        for p in particles:
-            pos = np.array([p.x, p.y], dtype=np.float)
+    for p in particles:
+        pos = np.array([p.x, p.y], dtype=np.float)
 
-            # print("pos", pos)
-            # print(p.landmark_means[i])
+        assignment, unassigned_measurement_idx = associate_landmarks_measurements(
+            p.landmark_means, z_real, p.landmark_covariances, observation_variance, 0.01
+        )
+
+        unassigned_measurement_idx = np.array(list(unassigned_measurement_idx), dtype=int)
+        # print(unassigned_measurement_idx)
+        unassigned = z_real[unassigned_measurement_idx]
+        p.add_landmarks(unassigned, observation_variance)
+
+        for i in assignment:
+            j = assignment[i]
 
             z_predicted, H_predicted = get_measurement(pos, p.landmark_means[i])
-            # print(pos, z_real[i], p.landmark_means[i], z_predicted)
-            residual = z_real[i] - z_predicted
+            residual = z_real[j] - z_predicted
 
             Q = (H_predicted @ p.landmark_covariances[i] @ H_predicted.T) + np.diag(observation_variance)
-            # print(p.landmark_covariances[i].shape)
-            # print(H_predicted.T.shape)
-            # print(np.linalg.pinv(Q).shape)
-
-            # print(p.landmark_covariances[i], H_predicted.T @ np.linalg.pinv(Q))
 
             K = p.landmark_covariances[i] @ H_predicted.T @ np.linalg.pinv(Q)
-
-            # print(K)
-            # print(residual)
 
             p.landmark_means[i] = p.landmark_means[i] + (K @ residual)
             p.landmark_covariances[i] = (np.eye(2) - (K @ H_predicted)) @ p.landmark_covariances[i]
 
-            p.w *= scipy.stats.multivariate_normal.pdf(z_real[i], mean=z_predicted, cov=Q, allow_singular=True)
+            p.w *= scipy.stats.multivariate_normal.pdf(z_real[j], mean=z_predicted, cov=Q, allow_singular=True)
 
     s = 0
     for p in particles:
@@ -169,21 +153,21 @@ def dist(a, b):
 
 if __name__ == "__main__":
 
-    np.random.seed(1)
+    np.random.seed(2)
 
-    MAX_DIST = 1.3
+    MAX_DIST = 1.4
 
     fig, ax = plt.subplots()
     ax.set_xlim([0, 17])
     ax.set_ylim([0, 17])
 
-    NL = 45
+    NL = 30
     landmarks = np.zeros((NL, 2), dtype=np.float)
-    landmarks[:, 0] = np.random.uniform(2, 13, NL)
-    landmarks[:, 1] = np.random.uniform(2, 13, NL)
+    landmarks[:, 0] = np.random.uniform(2, 10, NL)
+    landmarks[:, 1] = np.random.uniform(2, 10, NL)
 
     N = 1000
-    particles = get_initial_particles(N, (1.5, 2.5), (1.5, 2.5), len(landmarks))
+    particles = get_initial_particles(N, (1.5, 3.5), (1.5, 3.5), len(landmarks))
     # print(len(particles))
 
     for p in particles:
@@ -192,7 +176,7 @@ if __name__ == "__main__":
         p.theta = 0
 
     ss = np.array([2, 2, 0], dtype=np.float)
-    sigmas = [0.2, 0.2]
+    sigmas = [0.01, 0.01]
 
     z_real = []
     visible_landmarks = []
@@ -245,12 +229,12 @@ if __name__ == "__main__":
         plot_particles_grey(ax, particles)
 
         # s = move_vehicle_exact(s, u[i], dt=1)
-        ss = move_vehicle_stochastic(ss, u[i], dt=1, sigmas=[0.05, 0.2])
+        ss = move_vehicle_stochastic(ss, u[i], dt=1, sigmas=[0.05, 0.05])
         # s_history.append(s)
         ss_history.append(ss)
 
 
-        particles = predict(particles, u[i], sigmas=[0.05, 0.2], dt=1)
+        particles = predict(particles, u[i], sigmas=[0.05, 0.05], dt=1)
         # print(particles)
 
         # sigmas = [0.05, 0.05]
@@ -278,7 +262,7 @@ if __name__ == "__main__":
 
         # print(z_real + ss[:2])
 
-        update(particles, landmark_indices, landmarks, z_real, sigmas)
+        update(particles, landmark_indices, z_real, sigmas)
         plt.pause(0.01)
 
         slam_history.append(get_mean(particles))

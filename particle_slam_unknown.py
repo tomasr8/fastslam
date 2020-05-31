@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from filterpy.monte_carlo import systematic_resample
 
 from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
+from data_association import assign
 
 class Particle(object):
     def __init__(self, x, y, theta, n_landmarks, w):
@@ -14,8 +15,8 @@ class Particle(object):
         self.theta = theta
         self.n_landmarks = n_landmarks
         self.w = w
-        self.landmark_means = np.zeros((n_landmarks, 2))
-        self.landmark_covariances = np.zeros((n_landmarks, 2, 2))
+        self.landmark_means = np.zeros((n_landmarks, 2), dtype=np.float)
+        self.landmark_covariances = np.zeros((n_landmarks, 2, 2), dtype=np.float)
 
     def copy(self):
         p = Particle(self.x, self.y, self.theta, self.n_landmarks, self.w)
@@ -23,6 +24,22 @@ class Particle(object):
         p.landmark_covariances = np.copy(self.landmark_covariances)
 
         return p
+
+    def add_landmarks(self, means, measurement_cov):
+        n_old = len(self.landmark_means)
+        n_new = len(means)
+
+        self.n_landmarks = n_old + n_new
+
+        landmark_means = np.zeros((n_old + n_new, 2), dtype=np.float)
+        landmark_means[:n_old, :] = self.landmark_means
+        landmark_means[n_old:, :] = means
+        self.landmark_means = landmark_means
+
+        landmark_covariances = np.zeros((n_old + n_new, 2, 2), dtype=np.float)
+        landmark_covariances[:n_old, :] = self.landmark_covariances
+        landmark_covariances[n_old:, :] = measurement_cov
+        self.landmark_covariances = landmark_covariances
 
 
 def get_initial_particles(n, xlim, ylim, n_landmarks):
@@ -92,35 +109,36 @@ def predict(particles, u, dt, sigmas):
     return particles
 
 
-def update(particles, landmark_indices, landmarks, z_real, observation_variance):
-    for i in landmark_indices:
-        landmark = landmarks[i]
+def update(particles, landmarks, z_real, observation_variance):
+    for p in particles:
+        pos = np.array([p.x, p.y], dtype=np.float)
 
-        for p in particles:
-            pos = np.array([p.x, p.y], dtype=np.float)
+        # M = len(landmarks)
+        dist = get_dist_matrix(p.landmark_means, z_real + pos[:2], p.landmark_covariances, np.diag(observation_variance))
+        assignment, _, _ = assign(dist)
 
-            # print("pos", pos)
-            # print(p.landmark_means[i])
+        print(assignment)
+
+
+
+        for i, _ in enumerate(landmarks):
+
+            # print(assignment[i])
+            # print(type(assignment[i]))
 
             z_predicted, H_predicted = get_measurement(pos, p.landmark_means[i])
-            # print(pos, z_real[i], p.landmark_means[i], z_predicted)
+            # residual = z_real[assignment[i]] - z_predicted
             residual = z_real[i] - z_predicted
 
-            Q = (H_predicted @ p.landmark_covariances[i] @ H_predicted.T) + np.diag(observation_variance)
-            # print(p.landmark_covariances[i].shape)
-            # print(H_predicted.T.shape)
-            # print(np.linalg.pinv(Q).shape)
 
-            # print(p.landmark_covariances[i], H_predicted.T @ np.linalg.pinv(Q))
+            Q = (H_predicted @ p.landmark_covariances[i] @ H_predicted.T) + np.diag(observation_variance)
 
             K = p.landmark_covariances[i] @ H_predicted.T @ np.linalg.pinv(Q)
-
-            # print(K)
-            # print(residual)
 
             p.landmark_means[i] = p.landmark_means[i] + (K @ residual)
             p.landmark_covariances[i] = (np.eye(2) - (K @ H_predicted)) @ p.landmark_covariances[i]
 
+            # p.w *= scipy.stats.multivariate_normal.pdf(z_real[assignment[i]], mean=z_predicted, cov=Q, allow_singular=True)
             p.w *= scipy.stats.multivariate_normal.pdf(z_real[i], mean=z_predicted, cov=Q, allow_singular=True)
 
     s = 0
@@ -167,22 +185,39 @@ def dist(a, b):
 
 
 
+def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
+    M = len(landmarks)
+    dist = np.zeros((M, M), dtype=np.float)
+
+    # print("============================")
+    # print(landmarks)
+    # print(measurements)
+    # print("lc", landmarks_cov)
+    # print("mc", measurement_cov)
+
+    for i in range(M):
+        for j in range(M):
+            cov = landmarks_cov[i] + measurement_cov
+            dist[i, j] = -1 * scipy.stats.multivariate_normal.pdf(landmarks[i], mean=measurements[j], cov=cov, allow_singular=True)
+            # print("->", i, j, cov, dist[i, j])
+    
+    return dist
+
+
 if __name__ == "__main__":
 
     np.random.seed(1)
-
-    MAX_DIST = 1.3
 
     fig, ax = plt.subplots()
     ax.set_xlim([0, 17])
     ax.set_ylim([0, 17])
 
-    NL = 45
+    NL = 5
     landmarks = np.zeros((NL, 2), dtype=np.float)
     landmarks[:, 0] = np.random.uniform(2, 13, NL)
     landmarks[:, 1] = np.random.uniform(2, 13, NL)
 
-    N = 1000
+    N = 50
     particles = get_initial_particles(N, (1.5, 2.5), (1.5, 2.5), len(landmarks))
     # print(len(particles))
 
@@ -195,20 +230,11 @@ if __name__ == "__main__":
     sigmas = [0.2, 0.2]
 
     z_real = []
-    visible_landmarks = []
-    landmark_indices = []
-    for i, landmark in enumerate(landmarks):
+    for landmark in landmarks:
         z = get_measurement_stochastic(ss[:2], landmark, sigmas)
         z_real.append(z)
 
-        if dist(landmark, ss) < MAX_DIST:
-            visible_landmarks.append(landmark)
-            landmark_indices.append(i)
-
-    z_real = np.array(z_real, dtype=np.float)
-    visible_landmarks = np.array(visible_landmarks, dtype=np.float)
-
-    print("z_real", z_real[landmark_indices, :])
+    z_real = np.array(z_real)
 
     for p in particles:
         p.landmark_means = np.copy(z_real) + ss[:2]
@@ -262,23 +288,16 @@ if __name__ == "__main__":
         # print(ss)
 
         z_real = []
-        visible_landmarks = []
-        landmark_indices = []
-        for i, landmark in enumerate(landmarks):
+        for landmark in landmarks:
             z = get_measurement_stochastic(ss[:2], landmark, sigmas)
             z_real.append(z)
 
-            if dist(landmark, ss) < MAX_DIST:
-                visible_landmarks.append(landmark)
-                landmark_indices.append(i)
-
         z_real = np.array(z_real)
-        visible_landmarks = np.array(visible_landmarks, dtype=np.float)
         plot_measurement(ax, ss[:2], z_real, color="red")
 
         # print(z_real + ss[:2])
 
-        update(particles, landmark_indices, landmarks, z_real, sigmas)
+        update(particles, landmarks, z_real, sigmas)
         plt.pause(0.01)
 
         slam_history.append(get_mean(particles))
@@ -289,7 +308,7 @@ if __name__ == "__main__":
         plot_landmarks(ax, landmarks)
         plot_history(ax, ss_history, color='green')
         plot_history(ax, slam_history, color='orange')
-        plot_connections(ax, ss, z_real[landmark_indices, :] + ss[:2])
+        plot_connections(ax, ss, z_real + ss[:2])
         plot_particles_weight(ax, particles)
         plot_measurement(ax, ss[:2], z_real, color="red")
 

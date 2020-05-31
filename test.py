@@ -1,25 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.stats
 
 
-# weights = np.load("weights.npy")
-
-# weights = sorted(weights)
-
-
-# plt.plot(weights)
-# plt.show()
+print(scipy.stats.multivariate_normal.pdf([0.1, 0], mean=[0,0], cov=[[1, 0], [0, 1]]))
+print(scipy.stats.multivariate_normal.pdf([0, -1], mean=[0,0], cov=[[1, 0], [0, 1]]))
 
 
-landmarks = np.array([
-    [5, 2],
-    [7, 6],
-    [2, 8],
-    [2, 3],
-    [5, 5]
-])
-
-pos = np.array([1, 1])
-
-
-print(landmarks - pos)
+print(scipy.stats.multivariate_normal.pdf([0, 2], mean=[0,0], cov=[[2, 0], [0, 2]]))

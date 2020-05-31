@@ -8,22 +8,7 @@ from filterpy.monte_carlo import systematic_resample
 from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
 from particle import Particle
 from data_association import associate_landmarks_measurements
-
-
-def get_initial_particles(n, xlim, ylim, n_landmarks):
-    particles = []
-
-    for _ in range(n):
-        x = np.random.uniform(xlim[0], xlim[1])
-        y = np.random.uniform(ylim[0], ylim[1])
-        theta = np.random.uniform(0, 2*math.pi)
-
-        p = Particle(x, y, theta, n_landmarks, 1/n)
-        particles.append(p)
-
-    return particles
-
-
+from utils import dist, neff
 
 def get_measurement_stochastic(position, landmark, observation_variance):
     vector_to_landmark = np.array(landmark - position, dtype=np.float)
@@ -128,31 +113,7 @@ def resample_from_index(particles, indexes):
     return new_particles
 
 
-def neff(particles):
-    weights = [p.w for p in particles]
-    return 1. / np.sum(np.square(weights))
-
-
-def get_mean(paricles):
-    weights = np.array([p.w for p in paricles], dtype=np.float)
-    xs = np.array([p.x for p in particles], dtype=np.float)
-    ys = np.array([p.y for p in particles], dtype=np.float)
-    thetas = np.array([p.theta for p in particles], dtype=np.float)
-
-    return [
-        np.average(xs, weights=weights),
-        np.average(ys, weights=weights),
-        np.average(thetas, weights=weights)
-    ]
-
-
-def dist(a, b):
-    return math.sqrt((a[0] - b[0])**2 + (a[1] - b[1])**2)
-
-
-
 if __name__ == "__main__":
-
     np.random.seed(2)
 
     MAX_DIST = 3
@@ -160,7 +121,6 @@ if __name__ == "__main__":
     fig, ax = plt.subplots()
     ax.set_xlim([0, 17])
     ax.set_ylim([0, 17])
-
 
     NL = 8
     # landmarks = np.array([
@@ -180,31 +140,24 @@ if __name__ == "__main__":
     landmarks[:, 1] = np.random.uniform(2, 10, NL)
 
     N = 500
-    particles = get_initial_particles(N, (1.5, 3.5), (1.5, 3.5), 0)
+    particles = Particle.get_initial_particles(N, (1.5, 3.5), (1.5, 3.5), 0)
 
     for p in particles:
         p.x = 2 + np.random.normal(0, 0.1)
         p.y = 2 + np.random.normal(0, 0.1)
         p.theta = 0
 
-    ss = np.array([2, 2, 0], dtype=np.float)
+    real_position = np.array([2, 2, 0], dtype=np.float)
 
-
-    # s = [1, 1, 1]
     u = np.vstack((
         np.tile([0.0, 0.7], (4, 1)),
-        np.tile([0.3, 0.7], (21, 1)),
-        # np.tile([0.2, 0.7], (10, 1)),
-        # np.tile([0.2, 0.7], (5, 1)),
-        # np.tile([0.18, 0.7], (10, 1)),
-        # np.tile([0.0, 0.7], (10, 1))
+        np.tile([0.3, 0.7], (31, 1)),
     ))
 
-    # s_history = [s]
-    ss_history = [ss]
-    slam_history = [get_mean(particles)]
+    real_position_history = [real_position]
+    predicted_position_history = [Particle.get_mean_position(particles)]
 
-    for i in range(25):
+    for i in range(35):
         print(i)
 
         plt.pause(0.01)
@@ -213,59 +166,52 @@ if __name__ == "__main__":
         ax.set_xlim([0, 17])
         ax.set_ylim([0, 17])
         plot_landmarks(ax, landmarks)
-        plot_history(ax, ss_history, color='green')
-        plot_history(ax, slam_history, color='orange')
-        # plot_connection(ax, ss, z_real[landmark_indices, :] + ss[:2])
+        plot_history(ax, real_position_history, color='green')
+        plot_history(ax, predicted_position_history, color='orange')
+        # plot_connection(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
         plot_particles_grey(ax, particles)
 
-        # s = move_vehicle_exact(s, u[i], dt=1)
-        ss = move_vehicle_stochastic(ss, u[i], dt=1, sigmas=[0.05, 0.05])
-        # s_history.append(s)
-        ss_history.append(ss)
+        real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=[0.1, 0.05])
+        real_position_history.append(real_position)
 
+        particles = predict(particles, u[i], sigmas=[0.1, 0.05], dt=1)
 
-        particles = predict(particles, u[i], sigmas=[0.05, 0.05], dt=1)
-        # print(particles)
-
-        sigmas = [0.05, 0.05]
+        sigmas = [0.1, 0.1]
         R = np.array([
             [sigmas[0], 0],
             [0, sigmas[1]]
         ], dtype=np.float)
 
-        # print(ss)
-
         z_real = []
         visible_landmarks = []
         landmark_indices = []
         for i, landmark in enumerate(landmarks):
-            z = get_measurement_stochastic(ss[:2], landmark, sigmas)
+            z = get_measurement_stochastic(real_position[:2], landmark, sigmas)
             z_real.append(z)
 
-            if dist(landmark, ss) < MAX_DIST:
+            if dist(landmark, real_position) < MAX_DIST:
                 visible_landmarks.append(landmark)
                 landmark_indices.append(i)
 
         z_real = np.array(z_real)
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
-        plot_measurement(ax, ss[:2], z_real, color="red")
+        plot_measurement(ax, real_position[:2], z_real, color="red")
 
-        # print(z_real + ss[:2])
 
         update(particles, landmark_indices, z_real, sigmas)
         plt.pause(0.01)
 
-        slam_history.append(get_mean(particles))
+        predicted_position_history.append(Particle.get_mean_position(particles))
 
         ax.clear()
         ax.set_xlim([0, 17])
         ax.set_ylim([0, 17])
         plot_landmarks(ax, landmarks)
-        plot_history(ax, ss_history, color='green')
-        plot_history(ax, slam_history, color='orange')
-        plot_connections(ax, ss, z_real[landmark_indices, :] + ss[:2])
+        plot_history(ax, real_position_history, color='green')
+        plot_history(ax, predicted_position_history, color='orange')
+        plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
         plot_particles_weight(ax, particles)
-        plot_measurement(ax, ss[:2], z_real, color="red")
+        plot_measurement(ax, real_position[:2], z_real, color="red")
 
 
         if neff(particles) < N/2:
@@ -274,5 +220,3 @@ if __name__ == "__main__":
             indexes = systematic_resample(weights)
             # print(indexes)
             particles = resample_from_index(particles, indexes)
-        # print(particles)
-    # plt.show()

@@ -69,13 +69,13 @@ def update(particles, landmark_indices, z_real, observation_variance):
         pos = np.array([p.x, p.y], dtype=np.float)
 
         assignment, unassigned_measurement_idx = associate_landmarks_measurements(
-            p, z_real, observation_variance, 0.1
+            p, z_real, np.diag(observation_variance), threshold=0.1
         )
 
         unassigned_measurement_idx = np.array(list(unassigned_measurement_idx), dtype=int)
         # print(unassigned_measurement_idx)
         unassigned = z_real[unassigned_measurement_idx]
-        p.add_landmarks(unassigned + np.array([p.x, p.y]), observation_variance)
+        p.add_landmarks(unassigned + np.array([p.x, p.y]), np.diag(observation_variance))
 
         for i in assignment:
             j = assignment[i]
@@ -90,7 +90,7 @@ def update(particles, landmark_indices, z_real, observation_variance):
             p.landmark_means[i] = p.landmark_means[i] + (K @ residual)
             p.landmark_covariances[i] = (np.eye(2) - (K @ H_predicted)) @ p.landmark_covariances[i]
 
-            p.w *= scipy.stats.multivariate_normal.pdf(z_real[j], mean=z_predicted, cov=Q, allow_singular=True)
+            p.w *= scipy.stats.multivariate_normal.pdf(z_real[j], mean=z_predicted, cov=Q, allow_singular=False)
 
     s = 0
     for p in particles:
@@ -139,15 +139,11 @@ if __name__ == "__main__":
     landmarks[:, 0] = np.random.uniform(2, 10, NL)
     landmarks[:, 1] = np.random.uniform(2, 10, NL)
 
-    N = 500
-    particles = Particle.get_initial_particles(N, (1.5, 3.5), (1.5, 3.5), 0)
-
-    for p in particles:
-        p.x = 2 + np.random.normal(0, 0.1)
-        p.y = 2 + np.random.normal(0, 0.1)
-        p.theta = 0
 
     real_position = np.array([2, 2, 0], dtype=np.float)
+
+    N = 500
+    particles = Particle.get_initial_particles(N, real_position, sigma=0.2)
 
     u = np.vstack((
         np.tile([0.0, 0.7], (4, 1)),
@@ -156,6 +152,9 @@ if __name__ == "__main__":
 
     real_position_history = [real_position]
     predicted_position_history = [Particle.get_mean_position(particles)]
+
+    movement_variance = [0.1, 0.05]
+    measurement_variance = [0.1, 0.1]
 
     for i in range(35):
         print(i)
@@ -168,25 +167,18 @@ if __name__ == "__main__":
         plot_landmarks(ax, landmarks)
         plot_history(ax, real_position_history, color='green')
         plot_history(ax, predicted_position_history, color='orange')
-        # plot_connection(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
         plot_particles_grey(ax, particles)
 
-        real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=[0.1, 0.05])
+        real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=movement_variance)
         real_position_history.append(real_position)
 
-        particles = predict(particles, u[i], sigmas=[0.1, 0.05], dt=1)
-
-        sigmas = [0.1, 0.1]
-        R = np.array([
-            [sigmas[0], 0],
-            [0, sigmas[1]]
-        ], dtype=np.float)
+        particles = predict(particles, u[i], sigmas=movement_variance, dt=1)
 
         z_real = []
         visible_landmarks = []
         landmark_indices = []
         for i, landmark in enumerate(landmarks):
-            z = get_measurement_stochastic(real_position[:2], landmark, sigmas)
+            z = get_measurement_stochastic(real_position[:2], landmark, measurement_variance)
             z_real.append(z)
 
             if dist(landmark, real_position) < MAX_DIST:
@@ -198,7 +190,7 @@ if __name__ == "__main__":
         plot_measurement(ax, real_position[:2], z_real, color="red")
 
 
-        update(particles, landmark_indices, z_real, sigmas)
+        update(particles, landmark_indices, z_real, measurement_variance)
         plt.pause(0.01)
 
         predicted_position_history.append(Particle.get_mean_position(particles))

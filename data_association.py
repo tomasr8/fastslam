@@ -49,8 +49,16 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
     for i in range(M):
         for j in range(N):
             cov = landmarks_cov[i] + measurement_cov
-            dist[i, j] = scipy.stats.multivariate_normal.pdf(
-                landmarks[i], mean=measurements[j], cov=cov, allow_singular=True)
+
+            # cov_inv = np.linalg.pinv(cov)
+            # dist[i, j] = scipy.spatial.distance.mahalanobis(landmarks[i], measurements[j], cov_inv)
+
+            # dist[i, j] = maha(landmarks[i], measurements[j], cov)
+
+            dist[i, j] = pdf(landmarks[i], mean=measurements[j], cov=cov)
+
+            # dist[i, j] = scipy.stats.multivariate_normal.pdf(
+                # landmarks[i], mean=measurements[j], cov=cov, allow_singular=False)
 
     return dist
 
@@ -95,6 +103,32 @@ def associate_landmarks_measurements(particle, measurements, measurement_cov, th
 
     # particle.add_landmarks(new_landmarks, measurement_cov)
     return assignment, unassigned_measurement_idx
+
+
+def pdf(x, mean, cov):
+    return np.exp(logpdf(x, mean, cov))
+
+
+def logpdf(x, mean, cov):
+    # `eigh` assumes the matrix is Hermitian.
+    vals, vecs = np.linalg.eigh(cov)
+    logdet     = np.sum(np.log(vals))
+    valsinv    = np.array([1./v for v in vals])
+    # `vecs` is R times D while `vals` is a R-vector where R is the matrix 
+    # rank. The asterisk performs element-wise multiplication.
+    U          = vecs * np.sqrt(valsinv)
+    rank       = len(vals)
+    dev        = x - mean
+    # "maha" for "Mahalanobis distance".
+    maha       = np.square(np.dot(dev, U)).sum()
+    log2pi     = np.log(2 * np.pi)
+    return -0.5 * (rank * log2pi + maha + logdet)
+
+
+def maha(x, y, cov):
+    cov_inv = np.linalg.pinv(cov)
+    dif = x - y
+    return np.square(np.dot(dif, cov_inv)).sum()
 
 
 if __name__ == "__main__":

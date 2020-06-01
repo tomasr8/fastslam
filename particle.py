@@ -1,9 +1,8 @@
 import math
 import numpy as np
 
-
 class Particle(object):
-    def __init__(self, x, y, theta, n_landmarks, w):
+    def __init__(self, x: float, y: float, theta: float, n_landmarks: int, w: float):
         self.x = x
         self.y = y
         self.theta = theta
@@ -36,21 +35,24 @@ class Particle(object):
         self.landmark_covariances = landmark_covariances
 
     @staticmethod
-    def get_initial_particles(n: int, xlim: float, ylim: float, n_landmarks: int):
-        particles = []
+    def get_initial_particles(n_particles: int, starting_position: np.ndarray, sigma: float = 0.2):
+        particles = [None] * n_particles
+        n_landmarks = 0
 
-        for _ in range(n):
-            x = np.random.uniform(xlim[0], xlim[1])
-            y = np.random.uniform(ylim[0], ylim[1])
-            theta = np.random.uniform(0, 2*math.pi)
+        for i in range(n_particles):
+            x = starting_position[0] + np.random.normal(0, sigma)
+            y = starting_position[1] + np.random.normal(0, sigma)
+            theta = starting_position[2] = np.random.normal(0, sigma) % (2*math.pi)
 
-            p = Particle(x, y, theta, n_landmarks, 1/n)
-            particles.append(p)
+            weight = 1/n_particles
+
+            p = Particle(x, y, theta, n_landmarks, weight)
+            particles[i] = p
 
         return particles
 
     @staticmethod
-    def get_mean_position(particles):
+    def get_mean_position(particles) -> list:
         weights = np.array([p.w for p in particles], dtype=np.float)
         xs = np.array([p.x for p in particles], dtype=np.float)
         ys = np.array([p.y for p in particles], dtype=np.float)

@@ -1,4 +1,5 @@
 import math
+from typing import List
 import numpy as np
 import scipy
 import scipy.stats
@@ -10,18 +11,11 @@ from particle import Particle
 from data_association import associate_landmarks_measurements
 from utils import dist, neff
 
-def get_measurement_stochastic(position, landmark, observation_variance):
-    vector_to_landmark = np.array(landmark - position, dtype=np.float)
-
-    a = np.random.normal(0, observation_variance[0])
-    vector_to_landmark[0] += a
-    b = np.random.normal(0, observation_variance[1])
-    vector_to_landmark[1] += b
-
-    return vector_to_landmark
-
 
 def get_measurement(position, landmark):
+    '''
+        Returns the ideal (without noise) measurement and the Jacobian
+    '''
     vector_to_landmark = np.array(landmark - position, dtype=np.float)
 
     jacobian = np.array([
@@ -32,27 +26,44 @@ def get_measurement(position, landmark):
     return vector_to_landmark, jacobian
 
 
+def get_measurement_stochastic(position, landmark, measurement_variance):
+    '''
+        Returns a noisy measurement given by the variance
+    '''
+    vector_to_landmark = np.array(landmark - position, dtype=np.float)
+
+    a = np.random.normal(0, measurement_variance[0])
+    vector_to_landmark[0] += a
+    b = np.random.normal(0, measurement_variance[1])
+    vector_to_landmark[1] += b
+
+    return vector_to_landmark
+
 
 def move_vehicle_stochastic(pos, u, dt, sigmas):
+    '''
+        Stochastically moves the vehicle based on the control input and noise
+    '''
     x, y, theta = pos
-    omega, v = u
 
-    theta += omega + np.random.normal(0, sigmas[0])
+    theta += u[0] + np.random.normal(0, sigmas[0])
 
-    dist = (v * dt) + np.random.normal(0, sigmas[1])
-    x += np.cos(theta) * dist 
+    dist = (u[1] * dt) + np.random.normal(0, sigmas[1])
+    x += np.cos(theta) * dist
     y += np.sin(theta) * dist
 
     return np.array([x, y, theta], dtype=np.float)
 
 
 def predict(particles, u, dt, sigmas):
+    '''
+        Stochastically moves particles based on the control input and noise
+    '''
     N = len(particles)
-    # update heading
 
     for p in particles:
+        # add noise to heading
         p.theta += u[0] + np.random.normal(0, sigmas[0])
-        # particles[:, 2] %= 2 * np.pi
 
         # move in the (noisy) commanded direction
         dist = (u[1] * dt) + np.random.normal(0, sigmas[1])
@@ -101,10 +112,30 @@ def update(particles, landmark_indices, z_real, observation_variance):
         p.w /= s
 
 
-def resample_from_index(particles, indexes):
+def resample_from_index(particles: List[Particle], indexes) -> List[Particle]:
+    '''
+
+    '''
     N = len(particles)
     new_particles = []
 
+    for i in indexes:
+        p = particles[i].copy()
+        p.w = 1 / N
+        new_particles.append(p)
+
+    return new_particles
+
+
+def resample_particles(particles: List[Particle]) -> List[Particle]:
+    '''
+        Resamples particles using systematic resample from filterpy
+    '''
+    N = len(particles)
+    weights = [p.w for p in particles]
+    indexes = systematic_resample(weights)
+
+    new_particles = []
     for i in indexes:
         p = particles[i].copy()
         p.w = 1 / N
@@ -119,8 +150,8 @@ if __name__ == "__main__":
     MAX_DIST = 3
 
     fig, ax = plt.subplots()
-    ax.set_xlim([0, 17])
-    ax.set_ylim([0, 17])
+    ax.set_xlim([0, 15])
+    ax.set_ylim([0, 15])
 
     NL = 8
     # landmarks = np.array([
@@ -138,7 +169,6 @@ if __name__ == "__main__":
     landmarks = np.zeros((NL, 2), dtype=np.float)
     landmarks[:, 0] = np.random.uniform(2, 10, NL)
     landmarks[:, 1] = np.random.uniform(2, 10, NL)
-
 
     real_position = np.array([2, 2, 0], dtype=np.float)
 
@@ -162,8 +192,8 @@ if __name__ == "__main__":
         plt.pause(0.01)
 
         ax.clear()
-        ax.set_xlim([0, 17])
-        ax.set_ylim([0, 17])
+        ax.set_xlim([0, 15])
+        ax.set_ylim([0, 15])
         plot_landmarks(ax, landmarks)
         plot_history(ax, real_position_history, color='green')
         plot_history(ax, predicted_position_history, color='orange')
@@ -189,15 +219,14 @@ if __name__ == "__main__":
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
         plot_measurement(ax, real_position[:2], z_real, color="red")
 
-
         update(particles, landmark_indices, z_real, measurement_variance)
         plt.pause(0.01)
 
         predicted_position_history.append(Particle.get_mean_position(particles))
 
         ax.clear()
-        ax.set_xlim([0, 17])
-        ax.set_ylim([0, 17])
+        ax.set_xlim([0, 15])
+        ax.set_ylim([0, 15])
         plot_landmarks(ax, landmarks)
         plot_history(ax, real_position_history, color='green')
         plot_history(ax, predicted_position_history, color='orange')
@@ -205,10 +234,6 @@ if __name__ == "__main__":
         plot_particles_weight(ax, particles)
         plot_measurement(ax, real_position[:2], z_real, color="red")
 
-
         if neff(particles) < N/2:
             print("resample", neff(particles))
-            weights = [p.w for p in particles]
-            indexes = systematic_resample(weights)
-            # print(indexes)
-            particles = resample_from_index(particles, indexes)
+            particles = resample_particles(particles)

@@ -11,6 +11,9 @@ from particle import Particle
 from data_association import associate_landmarks_measurements
 from utils import dist, neff
 
+import numba as nb
+
+
 
 def get_measurement(position, landmark):
     '''
@@ -73,6 +76,46 @@ def predict(particles, u, dt, sigmas):
     return particles
 
 
+def pdf_2(x, mean, cov):
+    a, b = cov[0, :]
+
+    logdet = math.log(a*a - b*b)
+
+    root = math.sqrt(2)/2
+    e = root * (a-b)**(-0.5)
+    f = root * (a+b)**(-0.5)
+
+    m = x[0] - mean[0]
+    n = x[1] - mean[1]
+
+    maha = 2*(m*m*e*e + n*n*f*f)
+    log2pi = math.log(2 * math.pi)
+    return math.exp(-0.5 * (2*log2pi + maha + logdet))
+
+
+def pinv_2(A):
+    a = A[0, 0]
+    b = A[0, 1]
+    c = A[1, 0]
+    d = A[1, 1]
+
+    e = a*a + c*c
+    f = a*b + c*d
+    g = a*b + c*d
+    h = b*b + d*d
+
+    scalar = 1/(e*h - f*g)
+    e_i = scalar * h
+    f_i = scalar * (-f)
+    g_i = scalar * (-g)
+    h_i = scalar * e
+
+    return np.array([
+        [e_i*a + f_i*b, e_i*c + f_i*d],
+        [g_i*a + h_i*b, g_i*c + h_i*d]
+    ], dtype=np.float)
+
+
 def update(particles, landmark_indices, z_real, observation_variance):
     z_real = z_real[landmark_indices]
 
@@ -96,12 +139,16 @@ def update(particles, landmark_indices, z_real, observation_variance):
 
             Q = (H_predicted @ p.landmark_covariances[i] @ H_predicted.T) + np.diag(observation_variance)
 
-            K = p.landmark_covariances[i] @ H_predicted.T @ np.linalg.pinv(Q)
+            K = p.landmark_covariances[i] @ H_predicted.T @ pinv_2(Q)
+            # K = p.landmark_covariances[i] @ H_predicted.T @ np.linalg.pinv(Q)
+
 
             p.landmark_means[i] = p.landmark_means[i] + (K @ residual)
             p.landmark_covariances[i] = (np.eye(2) - (K @ H_predicted)) @ p.landmark_covariances[i]
 
-            p.w *= scipy.stats.multivariate_normal.pdf(z_real[j], mean=z_predicted, cov=Q, allow_singular=False)
+            p.w *= pdf_2(z_real[j], mean=z_predicted, cov=Q)
+            # p.w *= scipy.stats.multivariate_normal.pdf(z_real[j], mean=z_predicted, cov=Q, allow_singular=False)
+
 
     s = 0
     for p in particles:
@@ -149,9 +196,9 @@ if __name__ == "__main__":
 
     MAX_DIST = 3
 
-    fig, ax = plt.subplots()
-    ax.set_xlim([0, 15])
-    ax.set_ylim([0, 15])
+    # fig, ax = plt.subplots()
+    # ax.set_xlim([0, 15])
+    # ax.set_ylim([0, 15])
 
     NL = 8
     # landmarks = np.array([
@@ -172,7 +219,7 @@ if __name__ == "__main__":
 
     real_position = np.array([2, 2, 0], dtype=np.float)
 
-    N = 500
+    N = 1000
     particles = Particle.get_initial_particles(N, real_position, sigma=0.2)
 
     u = np.vstack((
@@ -189,15 +236,14 @@ if __name__ == "__main__":
     for i in range(35):
         print(i)
 
-        plt.pause(0.01)
-
-        ax.clear()
-        ax.set_xlim([0, 15])
-        ax.set_ylim([0, 15])
-        plot_landmarks(ax, landmarks)
-        plot_history(ax, real_position_history, color='green')
-        plot_history(ax, predicted_position_history, color='orange')
-        plot_particles_grey(ax, particles)
+        # plt.pause(0.01)
+        # ax.clear()
+        # ax.set_xlim([0, 15])
+        # ax.set_ylim([0, 15])
+        # plot_landmarks(ax, landmarks)
+        # plot_history(ax, real_position_history, color='green')
+        # plot_history(ax, predicted_position_history, color='orange')
+        # plot_particles_grey(ax, particles)
 
         real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=movement_variance)
         real_position_history.append(real_position)
@@ -217,22 +263,22 @@ if __name__ == "__main__":
 
         z_real = np.array(z_real)
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
-        plot_measurement(ax, real_position[:2], z_real, color="red")
+        # plot_measurement(ax, real_position[:2], z_real, color="red")
 
         update(particles, landmark_indices, z_real, measurement_variance)
-        plt.pause(0.01)
+        # plt.pause(0.01)
 
         predicted_position_history.append(Particle.get_mean_position(particles))
 
-        ax.clear()
-        ax.set_xlim([0, 15])
-        ax.set_ylim([0, 15])
-        plot_landmarks(ax, landmarks)
-        plot_history(ax, real_position_history, color='green')
-        plot_history(ax, predicted_position_history, color='orange')
-        plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
-        plot_particles_weight(ax, particles)
-        plot_measurement(ax, real_position[:2], z_real, color="red")
+        # ax.clear()
+        # ax.set_xlim([0, 15])
+        # ax.set_ylim([0, 15])
+        # plot_landmarks(ax, landmarks)
+        # plot_history(ax, real_position_history, color='green')
+        # plot_history(ax, predicted_position_history, color='orange')
+        # plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
+        # plot_particles_weight(ax, particles)
+        # plot_measurement(ax, real_position[:2], z_real, color="red")
 
         if neff(particles) < N/2:
             print("resample", neff(particles))

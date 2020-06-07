@@ -1,7 +1,7 @@
 import math
 import numpy as np
 import scipy
-
+import numba as nb
 
 def assign(dist):
     M, N = dist.shape
@@ -41,10 +41,11 @@ def assign(dist):
     return assignment_lm, assignment_ml, cost
 
 
+@nb.njit()
 def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
     M = len(landmarks)
     N = len(measurements)
-    dist = np.zeros((M, N), dtype=np.float)
+    dist = np.zeros((M, N), dtype=np.float32)
 
     for i in range(M):
         for j in range(N):
@@ -55,13 +56,14 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
 
             # dist[i, j] = maha(landmarks[i], measurements[j], cov)
 
-            dist[i, j] = pdf(landmarks[i], mean=measurements[j], cov=cov)
+            # dist[i, j] = pdf(landmarks[i], mean=measurements[j], cov=cov)
+            dist[i, j] = pdf_2(landmarks[i], mean=measurements[j], cov=cov)
+
 
             # dist[i, j] = scipy.stats.multivariate_normal.pdf(
                 # landmarks[i], mean=measurements[j], cov=cov, allow_singular=False)
 
     return dist
-
 
 def remove_unlikely_associations(assignment, dist, threshold):
     M, N = dist.shape
@@ -74,7 +76,6 @@ def remove_unlikely_associations(assignment, dist, threshold):
                 new_assignment[i] = j
 
     return new_assignment
-
 
 def find_unassigned_measurement_idx(assignement, n_measurements):
     all_idx = set(np.arange(n_measurements))
@@ -105,13 +106,43 @@ def associate_landmarks_measurements(particle, measurements, measurement_cov, th
     return assignment, unassigned_measurement_idx
 
 
+@nb.njit()
+def pdf_2(x, mean, cov):
+    a, b = cov[0, :]
+
+    logdet = math.log(a*a - b*b)
+
+    root = math.sqrt(2)/2
+    e = root * (a-b)**(-0.5)
+    f = root * (a+b)**(-0.5)
+
+    m = x[0] - mean[0]
+    n = x[1] - mean[1]
+
+    maha = 2*(m*m*e*e + n*n*f*f)
+    log2pi = math.log(2 * math.pi)
+    return math.exp(-0.5 * (2*log2pi + maha + logdet))
+
+
+
 def pdf(x, mean, cov):
     return np.exp(logpdf(x, mean, cov))
 
 
 def logpdf(x, mean, cov):
     # `eigh` assumes the matrix is Hermitian.
+    # print("cov", cov)
+    # print(x.shape)
+    # print(mean.shape)
+    # print(cov.shape)
+
+    # print(x)
+    # print(mean)
+    # print(cov)
+
+
     vals, vecs = np.linalg.eigh(cov)
+    # print(vals, vecs)
     logdet     = np.sum(np.log(vals))
     valsinv    = np.array([1./v for v in vals])
     # `vecs` is R times D while `vals` is a R-vector where R is the matrix 

@@ -1,38 +1,4 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <math.h>
-#include <stdbool.h>
-
-#include "sort.h"
-
-#define __device__ 
-
-typedef struct 
-{
-    float *matrix;
-    int n_landmarks;
-    int n_measurements;
-} dist_matrix;
-
-typedef struct 
-{
-    int *assignment;
-    bool *assigned_landmarks;
-    bool *assigned_measurements;
-} assignment;
-
-float pdf(float *x, float *mean, float* cov);
-
-__device__ float* get_mean(float *particle, int i)
-{
-    return (particle + 5 + 2*i);
-}
-
-__device__ float* get_cov(float *particle, int n_landmarks)
-{
-    return (particle + 5 + 2*n_landmarks);
-}
-
+#include "data_association.h"
 
 void associate_landmarks_measurements(float *particle, float **measurements, int n_landmarks, int n_measurements, float *measurement_cov, float threshold) {
     float pos[] = { particle[0], particle[1] };
@@ -47,17 +13,49 @@ void associate_landmarks_measurements(float *particle, float **measurements, int
 
     float *landmarks_cov = get_cov(particle, n_landmarks);
 
-    compute_dist_matrix(measurement_predicted, measurements,
-                           landmarks_cov, measurement_cov);
-    assignment_lm, assignment_ml, _ = assign(dist)
+    dist_matrix *matrix = malloc(sizeof(dist_matrix));
+    matrix->matrix = malloc(n_landmarks * n_measurements * sizeof(float));;
+    matrix->n_landmarks = n_landmarks;
+    matrix->n_measurements = n_measurements;
 
-    // assignment = remove_unlikely_associations(assignment_lm, dist, threshold)
-    // unassigned_measurement_idx = find_unassigned_measurement_idx(assignment, N)
+    compute_dist_matrix(measurement_predicted, measurements, matrix, landmarks_cov, measurement_cov);
+
+
+    bool *assigned_landmarks = malloc(n_landmarks * sizeof(bool));
+    bool *assigned_measurements = malloc(n_measurements * sizeof(bool));
+
+    for(int i = 0; i < n_landmarks; i++) {
+        assigned_landmarks[i] = false;
+    }
+
+    for(int i = 0; i < n_measurements; i++) {
+        assigned_measurements[i] = false;
+    }
+
+    int *assignment_lm = malloc(n_landmarks * sizeof(int));
+    for(int i = 0; i < n_landmarks; i++) {
+        assignment_lm[i] = -1;
+    }
+
+    assignment *assignment = malloc(sizeof(assignment));
+    assignment->assignment = assignment_lm;
+    assignment->assigned_landmarks = assigned_landmarks;
+    assignment->assigned_measurements = assigned_measurements;
+
+    assign(matrix, assignment, threshold);
+    add_unassigned_measurements_as_landmarks(particle, assigned_measurements, measurements, n_measurements, measurement_cov);
 
     for(int i = 0; i < n_landmarks; i++) {
         free(measurement_predicted[i]);
     }
     free(measurement_predicted);
+
+    free(matrix->matrix);
+    free(matrix);
+    free(assigned_landmarks);
+    free(assigned_measurements);
+    free(assignment_lm);
+    free(assignment);
 }
 
 

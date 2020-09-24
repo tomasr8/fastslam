@@ -125,6 +125,10 @@ __device__ void update_landmark(float *particle, float **z_real, int *assignment
     for(int i = 0; i < n; i++) {
         int j = assignment[i];
 
+        if(j == -1) {
+            continue;
+        }
+
         float *mean = get_mean(particle, i);
         float mean_x = mean[0];
         float mean_y = mean[1];
@@ -141,6 +145,12 @@ __device__ void update_landmark(float *particle, float **z_real, int *assignment
         matmul(cov, Q_inv, K);
 
         particle[3] *= pdf(z_real[j], z_predicted, Q);
+    }
+
+    for(int i = 0; i < n_measurements; i++) {
+        if(!assigned_measurements[i]) {
+            // add landmark
+        }
     }
 }
 """)

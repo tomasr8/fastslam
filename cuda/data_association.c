@@ -37,10 +37,22 @@ void assign(dist_matrix *matrix, assignment *assignment, float threshold) {
     }
 
     // float *dist_matrix = malloc(n_landmarks * n_measurements * sizeof(float));
-    quicksort(matrix->matrix, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
+    float *matrix_copy = malloc(n_landmarks * n_measurements * sizeof(float));
+    for (int i = 0; i < n_landmarks * n_measurements; i++) {
+        matrix_copy[i] = matrix->matrix[i]; 
+    }
 
+    quicksort(matrix_copy, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
+
+    // for (int i = 0; i < n_landmarks * n_measurements; i++) {
+    //     printf("%f, ", matrix_copy[i]); 
+    // }
+    // printf("\n");
+
+    free(matrix_copy);
 
     int assigned_total = 0;
+    float cost = 0;
 
     for(int i = 0; i < n_landmarks * n_measurements; i++) {
         int a = landmark_idx[i];
@@ -55,12 +67,15 @@ void assign(dist_matrix *matrix, assignment *assignment, float threshold) {
             assignment->assigned_landmarks[a] = true;
             assignment->assigned_measurements[b] = true;
             assigned_total += 1;
+            cost += matrix->matrix[a * n_measurements + b];
         }
 
         if(assigned_total == n_landmarks) {
             break;
         }
     }
+
+    printf("Cost: %f\n", cost);
 
     free(landmark_idx);
     free(measurement_idx);
@@ -102,13 +117,16 @@ int main()
 {
     srand(0);
 
-    int n_landmarks = 50;
-    int n_measurements = 10;
-    float *m = malloc(n_landmarks * n_measurements * sizeof(float));
+    int n_landmarks = 1000;
+    int n_measurements = 100;
 
+    // float m[] = { 1, 2, 10, 3, 6, 22, 4, 6, 5, 6, 3, 2, 1, 99, 2, 2, 7, 8, 1, 6, 33, 44, 17, 11, 31 };
+
+    float *m = malloc(n_landmarks * n_measurements * sizeof(float));
     for(int i = 0; i < n_landmarks * n_measurements; i++) {
         m[i] = (float)rand()/(float)(RAND_MAX);
     }
+
 
     dist_matrix *matrix = malloc(sizeof(dist_matrix));
     matrix->matrix = m;
@@ -138,22 +156,22 @@ int main()
 
     assign(matrix, assignment, 0.0);
 
-    for(int i = 0; i < n_landmarks; i++) {
-        printf("%d -> %d\n", i, assignment->assignment[i]);
-    }
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     printf("%d -> %d\n", i, assignment->assignment[i]);
+    // }
 
-    for(int i = 0; i < n_landmarks; i++) {
-        printf("%d,", assigned_landmarks[i]);
-    }
-    printf("\n");
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     printf("%d,", assigned_landmarks[i]);
+    // }
+    // printf("\n");
 
-    for(int i = 0; i < n_measurements; i++) {
-        printf("%d,", assigned_measurements[i]);
-    }
-    printf("\n");
+    // for(int i = 0; i < n_measurements; i++) {
+    //     printf("%d,", assigned_measurements[i]);
+    // }
+    // printf("\n");
 
 
-    free(matrix->matrix);
+    // free(matrix->matrix);
     free(matrix);
     free(assigned_landmarks);
     free(assigned_measurements);

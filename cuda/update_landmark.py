@@ -153,6 +153,11 @@ __device__ void update_landmark(float *particle, float **z_real, int *assignment
         }
     }
 }
+
+__global__ update()
+{
+    
+}
 """)
 #Gives you the number of columns
 n = A.shape[0]

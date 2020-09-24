@@ -5,6 +5,8 @@
 
 #include "sort.h"
 
+#define __device__ 
+
 typedef struct 
 {
     float *matrix;
@@ -20,6 +22,43 @@ typedef struct
 } assignment;
 
 float pdf(float *x, float *mean, float* cov);
+
+__device__ float* get_mean(float *particle, int i)
+{
+    return (particle + 5 + 2*i);
+}
+
+__device__ float* get_cov(float *particle, int n_landmarks)
+{
+    return (particle + 5 + 2*n_landmarks);
+}
+
+
+void associate_landmarks_measurements(float *particle, float **measurements, int n_landmarks, int n_measurements, float *measurement_cov, float threshold) {
+    float pos[] = { particle[0], particle[1] };
+    float **measurement_predicted = malloc(n_landmarks * sizeof(float*));
+
+    for(int i = 0; i < n_landmarks; i++) {
+        measurement_predicted[i] = malloc(2 * sizeof(float));
+        float *landmark = get_mean(particle, i);
+        measurement_predicted[i][0] = landmark[0] - pos[0];
+        measurement_predicted[i][1] = landmark[1] - pos[1];
+    }
+
+    float *landmarks_cov = get_cov(particle, n_landmarks);
+
+    compute_dist_matrix(measurement_predicted, measurements,
+                           landmarks_cov, measurement_cov);
+    assignment_lm, assignment_ml, _ = assign(dist)
+
+    // assignment = remove_unlikely_associations(assignment_lm, dist, threshold)
+    // unassigned_measurement_idx = find_unassigned_measurement_idx(assignment, N)
+
+    for(int i = 0; i < n_landmarks; i++) {
+        free(measurement_predicted[i]);
+    }
+    free(measurement_predicted);
+}
 
 
 void assign(dist_matrix *matrix, assignment *assignment, float threshold) {

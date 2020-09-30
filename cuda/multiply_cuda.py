@@ -5,9 +5,9 @@ import cv2
 import time
 import pycuda.autoinit
 
-A = np.random.randint(0, 5, size=(10000, 2, 2))
-B = np.random.randint(0, 5, size=(10000, 2, 2))
-C = np.float32(size=(10000, 2, 2))
+A = np.random.uniform(0, 5, size=(5, 2, 2)).astype(np.float32)
+B = np.random.uniform(0, 5, size=(5, 2, 2)).astype(np.float32)
+C = np.zeros(shape=(5, 2, 2), dtype=np.float32)
 
 # print(matrices)
 #nbtes determines the number of bytes for the numpy array a
@@ -25,8 +25,11 @@ mod = SourceModule("""
 #include <stdio.h>
 __global__ void matmul(float *A, float *B, float *C, int n)
 {
+    printf("n: %d\\n", n);
+    printf("A: %f\\n", A[0]);
     int i = threadIdx.x + blockIdx.x * blockDim.x;
-
+    printf("%d %d %d\\n", threadIdx.x, blockIdx.x, blockDim.x);
+    printf("i: %d\\n", i);
     if(i >= n) {
         return;
     }
@@ -51,9 +54,11 @@ __global__ void matmul(float *A, float *B, float *C, int n)
 n = A.shape[0]
 func = mod.get_function("matmul")
 start = time.time()
-func(cuda_A, cuda_B, cuda_C, np.int32(n), block=(128, 1, 1))
+func(cuda_A, cuda_B, cuda_C, np.int32(n), block=(5, 1, 1))
 out = np.empty_like(C)
 cuda.memcpy_dtoh(out, cuda_C)
-
+print(out)
+print(out.shape)
+# print(cuda_C)
 # print(img_ahe)
 print(time.time() - start)

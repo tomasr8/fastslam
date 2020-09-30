@@ -63,3 +63,64 @@ class Particle(object):
             np.average(ys, weights=weights),
             np.average(thetas, weights=weights)
         ]
+
+
+    @staticmethod
+    def flatten_particles(particles, max_particles):
+        n_particles = len(particles)
+        size = n_particles * (6 + 6*max_particles)
+        particle_array = np.zeros(shape=size, dtype=np.float32)
+
+        for i, p in enumerate(particles):
+            offset = i * (6 + 6*max_particles)
+            particle_array[offset] = float(p.x)
+            particle_array[offset+1] = float(p.y)
+            particle_array[offset+2] = float(p.theta)
+            particle_array[offset+3] = float(p.w)
+            particle_array[offset+4] = float(max_particles)
+            particle_array[offset+5] = float(p.n_landmarks)
+
+            for j, mean in enumerate(p.landmark_means):
+                particle_array[offset+6+2*j] = float(mean[0])
+                particle_array[offset+6+2*j+1] = float(mean[1])
+
+            for j, cov in enumerate(p.landmark_covariances):
+                particle_array[offset+6+2*max_particles+4*j] = float(cov[0, 0])
+                particle_array[offset+6+2*max_particles+4*j+1] = float(cov[0, 1])
+                particle_array[offset+6+2*max_particles+4*j+2] = float(cov[1, 0])
+                particle_array[offset+6+2*max_particles+4*j+3] = float(cov[1, 1])
+
+        return particle_array
+
+    @staticmethod
+    def unflatten_particles(particles, particle_array, max_particles):
+        for i, p in enumerate(particles):
+            offset = i * (6 + 6*max_particles)
+            p.w = particle_array[offset+3]
+            p.n_landmarks = int(particle_array[offset+5])
+
+            landmark_means = np.zeros((p.n_landmarks, 2), dtype=np.float32)
+            landmark_covariances = np.zeros((p.n_landmarks, 2, 2), dtype=np.float32)
+
+            for j in range(p.n_landmarks):
+                landmark_means[j][0] = particle_array[offset+6+2*j]
+                landmark_means[j][1] = particle_array[offset+6+2*j+1]
+
+                landmark_covariances[j][0, 0] = particle_array[offset+6+2*max_particles+4*j]
+                landmark_covariances[j][0, 1] = particle_array[offset+6+2*max_particles+4*j+1]
+                landmark_covariances[j][1, 0] = particle_array[offset+6+2*max_particles+4*j+2]
+                landmark_covariances[j][1, 1] = particle_array[offset+6+2*max_particles+4*j+3]
+
+            p.landmark_means = landmark_means
+            p.landmark_covariances = landmark_covariances
+
+
+# class FlatParticle(object):
+#     def __init__(self, x: float, y: float, theta: float, n_landmarks: int, w: float):
+#         self.x = x
+#         self.y = y
+#         self.theta = theta
+#         self.n_landmarks = n_landmarks
+#         self.w = w
+#         self.landmark_means = np.zeros((n_landmarks, 2), dtype=np.float)
+#         self.landmark_covariances = np.zeros((n_landmarks, 2, 2), dtype=np.float)

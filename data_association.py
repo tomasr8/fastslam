@@ -2,6 +2,8 @@ import math
 import numpy as np
 import scipy
 import numba as nb
+from numba import cuda
+import time
 
 def assign(dist):
     M, N = dist.shape
@@ -47,7 +49,10 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
     N = len(measurements)
     dist = np.zeros((M, N), dtype=np.float32)
 
+    print("====")
+    print("m_cov", measurement_cov)
     for i in range(M):
+        print("lm_cov:", landmarks_cov[i])
         for j in range(N):
             cov = landmarks_cov[i] + measurement_cov
 
@@ -57,11 +62,16 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
             # dist[i, j] = maha(landmarks[i], measurements[j], cov)
 
             # dist[i, j] = pdf(landmarks[i], mean=measurements[j], cov=cov)
-            dist[i, j] = pdf_2(landmarks[i], mean=measurements[j], cov=cov)
 
+            dist[i, j] = pdf_2(landmarks[i], mean=measurements[j], cov=cov)
+            print(dist[i, j], landmarks[i], measurements[j], cov)
 
             # dist[i, j] = scipy.stats.multivariate_normal.pdf(
                 # landmarks[i], mean=measurements[j], cov=cov, allow_singular=False)
+
+    # print("====")
+    # print(dist)
+    print("====")
 
     return dist
 
@@ -84,13 +94,12 @@ def find_unassigned_measurement_idx(assignement, n_measurements):
 
     return unassigned_idx
 
-
 def associate_landmarks_measurements(particle, measurements, measurement_cov, threshold):
     landmarks = particle.landmark_means
     landmarks_cov = particle.landmark_covariances
 
-    M = len(landmarks)
-    N = len(measurements)
+    M = landmarks.shape[0]
+    N = measurements.shape[0]
 
     pos = np.array([particle.x, particle.y])
     measurement_predicted = landmarks - pos
@@ -163,10 +172,20 @@ def maha(x, y, cov):
 
 
 if __name__ == "__main__":
-    M = 2
-    N = 2
+    start = time.time()
+    M = 1000
+    N = 100
     np.random.seed(0)
     dist = np.random.uniform(0, 1, size=(M, N))
+
+    # dist = np.float32([
+    #     [1, 2, 10, 3, 6],
+    #     [22, 4, 6, 5, 6],
+    #     [3, 2, 1, 99, 2],
+    #     [2, 7, 8, 1, 6],
+    #     [33, 44, 17, 11, 31]
+    # ])
+
     # np.save("in.npy", dist)
     # dist = np.array([
     #     [1, 2, 10],
@@ -174,6 +193,8 @@ if __name__ == "__main__":
     #     [10, 10, 1]
     # ])
 
+    # start = time.time()
     assignment_lm, assignment_ml, cost = assign(dist)
-    print(assignment_lm, assignment_ml)
+    # print(assignment_lm, assignment_ml)
     print("Cost:", cost)
+    print("Time: ", (time.time() - start))

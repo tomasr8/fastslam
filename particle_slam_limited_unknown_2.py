@@ -1,4 +1,5 @@
 import math
+import time
 from typing import List
 import numpy as np
 import scipy
@@ -7,9 +8,9 @@ import matplotlib.pyplot as plt
 from filterpy.monte_carlo import systematic_resample
 
 from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
-from particle import Particle
+from particle import Particle, FlatParticle
 from data_association import associate_landmarks_measurements
-from utils import dist, neff
+from utils import dist
 
 import numba as nb
 from multiprocessing import Process
@@ -65,139 +66,35 @@ def move_vehicle_stochastic(pos, u, dt, sigmas):
     return np.array([x, y, theta], dtype=np.float)
 
 
-def predict(particles, u, dt, sigmas):
-    '''
-        Stochastically moves particles based on the control input and noise
-    '''
-    N = len(particles)
-
-    for p in particles:
-        # add noise to heading
-        p.theta += u[0] + np.random.normal(0, sigmas[0])
-
-        # move in the (noisy) commanded direction
-        dist = (u[1] * dt) + np.random.normal(0, sigmas[1])
-        p.x += np.cos(p.theta) * dist
-        p.y += np.sin(p.theta) * dist
-
-    return particles
-
-
-def pdf_2(x, mean, cov):
-    a, b = cov[0, :]
-
-    logdet = math.log(a*a - b*b)
-
-    root = math.sqrt(2)/2
-    e = root * (a-b)**(-0.5)
-    f = root * (a+b)**(-0.5)
-
-    m = x[0] - mean[0]
-    n = x[1] - mean[1]
-
-    maha = 2*(m*m*e*e + n*n*f*f)
-    log2pi = math.log(2 * math.pi)
-    return math.exp(-0.5 * (2*log2pi + maha + logdet))
-
-
-def pinv_2(A):
-    a = A[0, 0]
-    b = A[0, 1]
-    c = A[1, 0]
-    d = A[1, 1]
-
-    e = a*a + c*c
-    f = a*b + c*d
-    g = a*b + c*d
-    h = b*b + d*d
-
-    scalar = 1/(e*h - f*g)
-    e_i = scalar * h
-    f_i = scalar * (-f)
-    g_i = scalar * (-g)
-    h_i = scalar * e
-
-    return np.array([
-        [e_i*a + f_i*b, e_i*c + f_i*d],
-        [g_i*a + h_i*b, g_i*c + h_i*d]
-    ], dtype=np.float)
-
-
-def update(particles, z_real, observation_variance):
+def update(particles, z_real, observation_variance, cuda_particles, cuda_measurements, cuda_cov):
     measurements = z_real.astype(np.float32)
-
-    max_particles = 200
-    particle_array = Particle.flatten_particles(particles, max_particles)
 
     measurement_cov = np.float32([
         observation_variance[0], 0,
         0, observation_variance[1]
     ])
 
-    cuda_particles = cuda.mem_alloc(particle_array.nbytes)
-    cuda_measurements = cuda.mem_alloc(measurements.nbytes)
-    cuda_cov = cuda.mem_alloc(measurement_cov.nbytes)
-
     #Copies the memory from CPU to GPU
-    cuda.memcpy_htod(cuda_particles, particle_array)
+    # start = time.time()
+    cuda.memcpy_htod(cuda_particles, particles)
     cuda.memcpy_htod(cuda_measurements, measurements)
     cuda.memcpy_htod(cuda_cov, measurement_cov)
 
     threshold = 0.1
+
     func = cuda_update.get_function("update")
-    func(cuda_particles, cuda_measurements, np.int32(len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(512, 1, 1))
+    func(cuda_particles, cuda_measurements, np.int32(FlatParticle.len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(64, 1, 1), grid=(32, 1, 1))
 
-    out = np.empty_like(particle_array)
-    cuda.memcpy_dtoh(out, cuda_particles)
+    # new_particles = np.empty_like(particles)
+    cuda.memcpy_dtoh(particles, cuda_particles)
+    # print("cuda_took: ", (time.time() - start))
 
-    Particle.unflatten_particles(particles, out, max_particles)
+    # start = time.time()
+    FlatParticle.rescale(particles)
 
-    s = 0
-    for p in particles:
-        p.w += 1.e-40
-        s += p.w
+    # print("rescale took:", time.time() - start)
 
-    for p in particles:
-        p.w /= s
-
-    # print(neff(particles))
-
-    # print("after renormalization ", [p.w for p in particles])
-    # print("n_landmarks ", [p.n_landmarks for p in particles])
-
-    # raise Exception
-
-
-def resample_from_index(particles: List[Particle], indexes) -> List[Particle]:
-    '''
-
-    '''
-    N = len(particles)
-    new_particles = []
-
-    for i in indexes:
-        p = particles[i].copy()
-        p.w = 1 / N
-        new_particles.append(p)
-
-    return new_particles
-
-
-def resample_particles(particles: List[Particle]) -> List[Particle]:
-    '''
-        Resamples particles using systematic resample from filterpy
-    '''
-    N = len(particles)
-    weights = [p.w for p in particles]
-    indexes = systematic_resample(weights)
-
-    new_particles = []
-    for i in indexes:
-        p = particles[i].copy()
-        p.w = 1 / N
-        new_particles.append(p)
-
-    return new_particles
+    return particles
 
 
 if __name__ == "__main__":
@@ -247,11 +144,12 @@ if __name__ == "__main__":
     
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 256
-    particles = Particle.get_initial_particles(N, real_position, sigma=0.2)
+    N = 2048
+    MAX_LANDMARKS = 100
+    particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (60, 1)),
+        np.tile([0.13, 0.7], (120, 1)),
         # np.tile([0.3, 0.7], (4, 1)),
         # np.tile([0.0, 0.7], (6, 1)),
         # np.tile([0.3, 0.7], (5, 1)),
@@ -260,12 +158,20 @@ if __name__ == "__main__":
     ))
 
     real_position_history = [real_position]
-    predicted_position_history = [Particle.get_mean_position(particles)]
+    predicted_position_history = [FlatParticle.get_mean_position(particles)]
 
     movement_variance = [0.03, 0.05]
     measurement_variance = [0.1, 0.1]
 
+    # print(particles.nbytes / N)
+    # raise Exception
+
+    cuda_particles = cuda.mem_alloc(2424 * N)
+    cuda_measurements = cuda.mem_alloc(128)
+    cuda_cov = cuda.mem_alloc(16)
+
     for i in range(u.shape[0]):
+        loop_time = time.time()
         print(i)
 
         if PLOT:
@@ -282,7 +188,7 @@ if __name__ == "__main__":
         real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=movement_variance)
         real_position_history.append(real_position)
 
-        particles = predict(particles, u[i], sigmas=movement_variance, dt=1)
+        FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=1)
 
         z_real = []
         visible_landmarks = []
@@ -299,10 +205,13 @@ if __name__ == "__main__":
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
         # plot_measurement(ax, real_position[:2], z_real, color="red")
 
-        update(particles, z_real[landmark_indices], measurement_variance)
+        # start = time.time()
+        particles = update(particles, z_real[landmark_indices], measurement_variance, cuda_particles, cuda_measurements, cuda_cov)
+        # print(particles.nbytes)
+        # print("took: ", (time.time() - start))
         # plt.pause(2)
 
-        predicted_position_history.append(Particle.get_mean_position(particles))
+        predicted_position_history.append(FlatParticle.get_mean_position(particles))
 
         if PLOT:
             ax.clear()
@@ -315,6 +224,8 @@ if __name__ == "__main__":
             plot_particles_weight(ax, particles)
             plot_measurement(ax, real_position[:2], z_real, color="red")
 
-        if neff(particles) < N/2:
-            print("resample", neff(particles))
-            particles = resample_particles(particles)
+        if FlatParticle.neff(particles) < N/2:
+            print("resample", FlatParticle.neff(particles))
+            particles = FlatParticle.resample_particles(particles)
+
+        print("loop time:", time.time() - loop_time)

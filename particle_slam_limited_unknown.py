@@ -1,4 +1,5 @@
 import math
+import time
 from typing import List
 import numpy as np
 import scipy
@@ -126,7 +127,7 @@ def update(particles, z_real, observation_variance):
             p, z_real, np.diag(observation_variance), threshold=0.1
         )
 
-        print(assignment)
+        # print(assignment)
 
         unassigned_measurement_idx = np.array(list(unassigned_measurement_idx), dtype=int)
         # print(unassigned_measurement_idx)
@@ -139,17 +140,17 @@ def update(particles, z_real, observation_variance):
             z_predicted, H_predicted = get_measurement(pos, p.landmark_means[i])
             residual = z_real[j] - z_predicted
 
-            print("residual", residual)
+            # print("residual", residual)
 
             Q = (H_predicted @ p.landmark_covariances[i] @ H_predicted.T) + np.diag(observation_variance)
 
-            print("Q", Q)
+            # print("Q", Q)
 
             K = p.landmark_covariances[i] @ H_predicted.T @ pinv_2(Q)
             # K = p.landmark_covariances[i] @ H_predicted.T @ np.linalg.pinv(Q)
 
-            print("K", K)
-            print("K_res", K @ residual)
+            # print("K", K)
+            # print("K_res", K @ residual)
             p.landmark_means[i] = p.landmark_means[i] + (K @ residual)
             p.landmark_covariances[i] = (np.eye(2) - (K @ H_predicted)) @ p.landmark_covariances[i]
 
@@ -201,6 +202,7 @@ def resample_particles(particles: List[Particle]) -> List[Particle]:
 if __name__ == "__main__":
     np.random.seed(2)
 
+    PLOT = False
     MAX_DIST = 3
 
     fig, ax = plt.subplots()
@@ -255,11 +257,11 @@ if __name__ == "__main__":
 
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 256
+    N = 1024
     particles = Particle.get_initial_particles(N, real_position, sigma=0.2)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (60, 1)),
+        np.tile([0.13, 0.7], (120, 1)),
         # np.tile([0.3, 0.7], (4, 1)),
         # np.tile([0.0, 0.7], (6, 1)),
         # np.tile([0.3, 0.7], (5, 1)),
@@ -276,14 +278,15 @@ if __name__ == "__main__":
     for i in range(u.shape[0]):
         print(i)
 
-        plt.pause(0.05)
-        ax.clear()
-        ax.set_xlim([0, 15])
-        ax.set_ylim([0, 15])
-        plot_landmarks(ax, landmarks)
-        plot_history(ax, real_position_history, color='green')
-        plot_history(ax, predicted_position_history, color='orange')
-        plot_particles_grey(ax, particles)
+        if PLOT:
+            plt.pause(0.05)
+            ax.clear()
+            ax.set_xlim([0, 15])
+            ax.set_ylim([0, 15])
+            plot_landmarks(ax, landmarks)
+            plot_history(ax, real_position_history, color='green')
+            plot_history(ax, predicted_position_history, color='orange')
+            plot_particles_grey(ax, particles)
 
         real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=movement_variance)
         real_position_history.append(real_position)
@@ -303,22 +306,25 @@ if __name__ == "__main__":
 
         z_real = np.array(z_real)
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
-        plot_measurement(ax, real_position[:2], z_real, color="red")
+        # plot_measurement(ax, real_position[:2], z_real, color="red")
 
+        start = time.time()
         update(particles, z_real[landmark_indices], measurement_variance)
+        print("took: ", (time.time() - start))
         # plt.pause(2)
 
         predicted_position_history.append(Particle.get_mean_position(particles))
 
-        ax.clear()
-        ax.set_xlim([0, 15])
-        ax.set_ylim([0, 15])
-        plot_landmarks(ax, landmarks)
-        plot_history(ax, real_position_history, color='green')
-        plot_history(ax, predicted_position_history, color='orange')
-        plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
-        plot_particles_weight(ax, particles)
-        plot_measurement(ax, real_position[:2], z_real, color="red")
+        if PLOT:
+            ax.clear()
+            ax.set_xlim([0, 15])
+            ax.set_ylim([0, 15])
+            plot_landmarks(ax, landmarks)
+            plot_history(ax, real_position_history, color='green')
+            plot_history(ax, predicted_position_history, color='orange')
+            plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
+            plot_particles_weight(ax, particles)
+            plot_measurement(ax, real_position[:2], z_real, color="red")
 
         if neff(particles) < N/2:
             print("resample", neff(particles))

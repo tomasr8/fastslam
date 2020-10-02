@@ -1,4 +1,5 @@
 import numpy as np
+from particle import FlatParticle
 
 def plot_history(ax, history, color='green'):
     for x, y, _ in history:
@@ -27,17 +28,19 @@ def plot_connections(ax, s, landmarks, color='purple'):
 
 
 def plot_particles_weight(ax, particles):
-    pos = [[p.x, p.y] for p in particles]
-    pos = np.array(pos, dtype=np.float)
+    pos = np.zeros((FlatParticle.len(particles), 2), dtype=np.float32)
+    pos[:, 0] = FlatParticle.x(particles)
+    pos[:, 1] = FlatParticle.y(particles)
 
-    weight = [p.w for p in particles]
+    weight = FlatParticle.w(particles)
 
     ax.scatter(pos[:, 0], pos[:, 1], marker='o', c=weight, s=2)
 
 
 def plot_particles_grey(ax, particles):
-    pos = [[p.x, p.y] for p in particles]
-    pos = np.array(pos, dtype=np.float)
+    pos = np.zeros((FlatParticle.len(particles), 2), dtype=np.float32)
+    pos[:, 0] = FlatParticle.x(particles)
+    pos[:, 1] = FlatParticle.y(particles)
 
     ax.scatter(pos[:, 0], pos[:, 1], marker='o', color='grey', s=2)
 

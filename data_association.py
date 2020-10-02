@@ -49,10 +49,10 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
     N = len(measurements)
     dist = np.zeros((M, N), dtype=np.float32)
 
-    print("====")
-    print("m_cov", measurement_cov)
+    # print("====")
+    # print("m_cov", measurement_cov)
     for i in range(M):
-        print("lm_cov:", landmarks_cov[i])
+        # print("lm_cov:", landmarks_cov[i])
         for j in range(N):
             cov = landmarks_cov[i] + measurement_cov
 
@@ -64,14 +64,14 @@ def get_dist_matrix(landmarks, measurements, landmarks_cov, measurement_cov):
             # dist[i, j] = pdf(landmarks[i], mean=measurements[j], cov=cov)
 
             dist[i, j] = pdf_2(landmarks[i], mean=measurements[j], cov=cov)
-            print(dist[i, j], landmarks[i], measurements[j], cov)
+            # print(dist[i, j], landmarks[i], measurements[j], cov)
 
             # dist[i, j] = scipy.stats.multivariate_normal.pdf(
                 # landmarks[i], mean=measurements[j], cov=cov, allow_singular=False)
 
     # print("====")
     # print(dist)
-    print("====")
+    # print("====")
 
     return dist
 

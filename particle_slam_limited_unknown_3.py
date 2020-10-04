@@ -17,6 +17,8 @@ from multiprocessing import Process
 import pycuda.driver as cuda
 from pycuda.compiler import SourceModule
 import pycuda.autoinit
+from pycuda.autoinit import context
+from pycuda.driver import limit
 
 from cuda.update import cuda_update
 
@@ -97,6 +99,8 @@ def update(particles, z_real, observation_variance, cuda_particles, cuda_measure
 
 
 if __name__ == "__main__":
+    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)
+
     np.random.seed(2)
 
     PLOT = False

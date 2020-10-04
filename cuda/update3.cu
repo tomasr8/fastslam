@@ -259,6 +259,8 @@ __device__ void compute_dist_matrix(float *landmarks, float measurements[][2], d
         // printf("lm_cov: [%f %f %f %f]\n", landmarks_cov[4*i], landmarks_cov[4*i+1], landmarks_cov[4*i+2], landmarks_cov[4*i+3]);
 
         for(int j = 0; j < matrix->n_measurements; j++) {
+
+
             float cov[4] = {
                 landmarks_cov[4*i] + measurement_cov[0],
                 landmarks_cov[4*i+1] + measurement_cov[1],
@@ -347,13 +349,19 @@ __device__ void associate_landmarks_measurements(float *particle, float measurem
         float *landmarks_cov = get_cov(particle, 0);
 
         dist_matrix *matrix = (dist_matrix *)malloc(sizeof(dist_matrix));
-        matrix->matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));;
+        if(matrix == NULL) {
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED matrix\n");
+        }
+        matrix->matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));
+        if(matrix->matrix == NULL) {
+            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED matrix->matrix %d\n", n_landmarks * n_measurements);
+        }
         matrix->n_landmarks = n_landmarks;
         matrix->n_measurements = n_measurements;
 
         compute_dist_matrix(measurement_predicted, measurements, matrix, landmarks_cov, measurement_cov);
 
-        assign(matrix, assignment, threshold);
+        // assign(matrix, assignment, threshold);
 
         // for(int i = 0; i < n_landmarks; i++) {
         //     free(measurement_predicted[i]);
@@ -362,13 +370,7 @@ __device__ void associate_landmarks_measurements(float *particle, float measurem
 
         free(matrix->matrix);
         free(matrix);
-    } else {
-        // add_unassigned_measurements_as_landmarks(particle, assignment->assigned_measurements, measurements, n_measurements, measurement_cov);
     }
-    // free(assigned_landmarks);
-    // free(assigned_measurements);
-    // free(assignment_lm);
-    // free(assignment);
 }
 
 __device__ void update_landmark(float *particle, float measurements[][2], assignment *assignment, int n_measurements, float *measurement_cov)
@@ -467,6 +469,14 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
     bool *assigned_landmarks = (bool *)malloc(n_landmarks * sizeof(bool));
     bool *assigned_measurements = (bool *)malloc(n_measurements * sizeof(bool));
 
+    if(assigned_landmarks == NULL) {
+        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x1\n");
+    }
+
+    if(assigned_measurements == NULL) {
+        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x2\n");
+    }
+
     for(int i = 0; i < n_landmarks; i++) {
         assigned_landmarks[i] = false;
     }
@@ -480,7 +490,14 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
         assignment_lm[i] = -1;
     }
 
+    if(assignment_lm == NULL) {
+        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x3\n");
+    }
+
     assignment *assignmentx = (assignment*)malloc(sizeof(assignment));
+    if(assignmentx == NULL) {
+        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x4\n");
+    }
     assignmentx->assignment = assignment_lm;
     assignmentx->assigned_landmarks = assigned_landmarks;
     assignmentx->assigned_measurements = assigned_measurements;
@@ -491,9 +508,9 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
         measurement_cov, threshold
     );
 
-    update_landmark(particle, measurements, assignmentx, n_measurements, measurement_cov);
+    // update_landmark(particle, measurements, assignmentx, n_measurements, measurement_cov);
 
-    add_unassigned_measurements_as_landmarks(particle, assignmentx->assigned_measurements, measurements, n_measurements, measurement_cov);
+    // add_unassigned_measurements_as_landmarks(particle, assignmentx->assigned_measurements, measurements, n_measurements, measurement_cov);
 
     free(assignmentx->assigned_landmarks);
     free(assignmentx->assigned_measurements);

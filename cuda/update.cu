@@ -2,7 +2,7 @@
 #include <stdbool.h>
 #include <math.h>
 
-// #define M_PI 3.14159265359
+#define M_PI 3.14159265359
 // particle
 
 __device__ float* get_particle(float *particles, int i) {
@@ -28,31 +28,19 @@ __device__ int get_n_landmarks(float *particle)
 
 __device__ void add_landmark(float *particle, float mean[2], float *cov)
 {
-    // printf("add_landmark %f %f\n", mean[0], mean[1]);
-    // if(particle[5] == particle[4]) {
-    //     printf(">>>>>>>>>>>>>>>>>> TOO MANY LANDMARKS\n");
-    // }
-
     int n_landmarks = (int)particle[5];
+    particle[5] = (float)(n_landmarks + 1);
 
-    // particle[5] = (float)(n_landmarks + 1);
-    // printf("max_l: %f\n", particle[5]);
-    particle[6] = 70.0;
-    particle[7] = 70.0;
-    particle[5] = 70.0;
+    float *new_mean = get_mean(particle, n_landmarks);
+    float *new_cov = get_cov(particle, n_landmarks);
 
+    new_mean[0] = mean[0];
+    new_mean[1] = mean[1];
 
-
-    // float *new_mean = get_mean(particle, n_landmarks - 1);
-    // float *new_cov = get_cov(particle, n_landmarks - 1);
-
-    // new_mean[0] = mean[0];
-    // new_mean[1] = mean[1];
-
-    // new_cov[0] = cov[0];
-    // new_cov[1] = cov[1];
-    // new_cov[2] = cov[2];
-    // new_cov[3] = cov[3];
+    new_cov[0] = cov[0];
+    new_cov[1] = cov[1];
+    new_cov[2] = cov[2];
+    new_cov[3] = cov[3];
 }
 
 __device__ void add_unassigned_measurements_as_landmarks(float *particle, bool *assigned_measurements, float measurements[][2], int n_measurements, float *measurement_cov)

@@ -17,6 +17,8 @@ from multiprocessing import Process
 import pycuda.driver as cuda
 from pycuda.compiler import SourceModule
 import pycuda.autoinit
+from pycuda.autoinit import context
+from pycuda.driver import limit
 
 from cuda.update import cuda_update
 
@@ -84,22 +86,24 @@ def update(particles, z_real, observation_variance, cuda_particles, cuda_measure
     func(cuda_particles, cuda_measurements, np.int32(FlatParticle.len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(16, 16, 1), grid=(8, 8, 1))
     print("after CUDA")
     # new_particles = np.empty_like(particles)
-    new_particles = np.empty_like(particles)
-    cuda.memcpy_dtoh(new_particles, cuda_particles)
+    # new_particles = np.empty_like(particles)
+    cuda.memcpy_dtoh(particles, cuda_particles)
     # print("cuda_took: ", (time.time() - start))
 
     # start = time.time()
-    FlatParticle.rescale(new_particles)
+    FlatParticle.rescale(particles)
 
     # print("rescale took:", time.time() - start)
 
-    return new_particles
+    return particles
 
 
 if __name__ == "__main__":
+    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)
+
     np.random.seed(2)
 
-    PLOT = False
+    PLOT = True
     MAX_DIST = 3
 
     if PLOT:

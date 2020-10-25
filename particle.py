@@ -142,6 +142,12 @@ class FlatParticle(object):
         return int(length/(6 + 6*max_landmarks))
 
     @staticmethod
+    def mean_particles(particles):
+        max_landmarks = int(particles[4])
+        step = 6 + 6*max_landmarks
+        return np.mean(particles[5::step])
+
+    @staticmethod
     def get_particle(particles, i):
         max_landmarks = int(particles[4])
         size = 6 + 6*max_landmarks
@@ -188,6 +194,7 @@ class FlatParticle(object):
 
         particles[2::step] += u[0]
         # add noise to heading
+        print("N", N, "step", step)
         particles[2::step] += np.random.normal(loc=0, scale=sigmas[0], size=N)
 
         # move in the (noisy) commanded direction

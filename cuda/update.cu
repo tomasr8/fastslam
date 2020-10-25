@@ -239,28 +239,30 @@ __device__ float pdf(float *x, float *mean, float* cov)
     return exp(-0.5 * (2*log2pi + maha + logdet));
 }
 
-__device__ void compute_dist_matrix(float *landmarks, float measurements[][2], dist_matrix *matrix, float *landmarks_cov, float *measurement_cov)
+__device__ void compute_dist_matrix(float *particle, float measurements[][2], dist_matrix *matrix, float *measurement_cov)
 {
-    // printf("---\n");
-    // printf("m_cov: [%f %f %f %f]\n", measurement_cov[0], measurement_cov[1], measurement_cov[2], measurement_cov[3]);
+
+    float pos[] = { particle[0], particle[1] };
+    float *landmarks_cov = get_cov(particle, 0);
+
     for(int i = 0; i < matrix->n_landmarks; i++) {
-        // printf("lm_cov: [%f %f %f %f]\n", landmarks_cov[4*i], landmarks_cov[4*i+1], landmarks_cov[4*i+2], landmarks_cov[4*i+3]);
+        float *landmark = get_mean(particle, i);
 
         for(int j = 0; j < matrix->n_measurements; j++) {
+            float measurement_predicted[] = {
+                landmark[0] - pos[0], landmark[1] - pos[1]
+            };
+
             float cov[4] = {
                 landmarks_cov[4*i] + measurement_cov[0],
                 landmarks_cov[4*i+1] + measurement_cov[1],
                 landmarks_cov[4*i+2] + measurement_cov[2],
                 landmarks_cov[4*i+3] + measurement_cov[3]
             };
-            float landmark[] = { landmarks[2*i], landmarks[2*i + 1] };
-            matrix->matrix[i * matrix->n_measurements + j] = pdf(landmark, measurements[j], cov);
-            // printf("%.15f [%f %f], [%f %f], [%f %f %f %f]\n", pdf(landmarks[i], measurements[j], cov),
-                // landmarks[i][0], landmarks[i][1], measurements[j][0], measurements[j][1], cov[0], cov[1], cov[2], cov[3]);
+            // float landmark[] = { landmarks[2*i], landmarks[2*i + 1] };
+            matrix->matrix[i * matrix->n_measurements + j] = pdf(measurement_predicted, measurements[j], cov);
         }
     }
-    // printf("---\n");
-
 }
 
 __device__ void assign(dist_matrix *matrix, assignment *assignment, float threshold) {
@@ -320,33 +322,33 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
 __device__ void associate_landmarks_measurements(float *particle, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
     if(n_landmarks > 0 && n_measurements > 0) {
         float pos[] = { particle[0], particle[1] };
-        float *measurement_predicted = (float *)malloc(2 * n_landmarks * sizeof(float));
-        if(measurement_predicted == NULL) {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED mp\n");
-        }
+        // float *measurement_predicted = (float *)malloc(2 * n_landmarks * sizeof(float));
+        // if(measurement_predicted == NULL) {
+        //     printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED mp\n");
+        // }
 
-        for(int i = 0; i < n_landmarks; i++) {
-            // measurement_predicted[i] = (float *)malloc(2 * sizeof(float));
-            float *landmark = get_mean(particle, i);
-            measurement_predicted[2*i] = landmark[0] - pos[0];
-            measurement_predicted[2*i + 1] = landmark[1] - pos[1];
-        }
+        // for(int i = 0; i < n_landmarks; i++) {
+        //     // measurement_predicted[i] = (float *)malloc(2 * sizeof(float));
+        //     float *landmark = get_mean(particle, i);
+        //     measurement_predicted[2*i] = landmark[0] - pos[0];
+        //     measurement_predicted[2*i + 1] = landmark[1] - pos[1];
+        // }
 
-        float *landmarks_cov = get_cov(particle, 0);
+        // float *landmarks_cov = get_cov(particle, 0);
 
         dist_matrix *matrix = (dist_matrix *)malloc(sizeof(dist_matrix));
         matrix->matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));;
         matrix->n_landmarks = n_landmarks;
         matrix->n_measurements = n_measurements;
 
-        compute_dist_matrix(measurement_predicted, measurements, matrix, landmarks_cov, measurement_cov);
+        compute_dist_matrix(particle, measurements, matrix, measurement_cov);
 
         assign(matrix, assignment, threshold);
 
         // for(int i = 0; i < n_landmarks; i++) {
         //     free(measurement_predicted[i]);
         // }
-        free(measurement_predicted);
+        // free(measurement_predicted);
 
         free(matrix->matrix);
         free(matrix);

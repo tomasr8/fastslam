@@ -23,6 +23,11 @@ from pycuda.driver import limit
 from cuda.update import cuda_update
 
 
+cuda_time = []
+cuda_htod = []
+cuda_dtoh = []
+
+
 def get_measurement_stochastic(position, landmark, measurement_variance):
     '''
         Returns a noisy measurement given by the variance
@@ -73,25 +78,38 @@ def update(particles, z_real, observation_variance, cuda_particles, cuda_measure
         0, observation_variance[1]
     ])
 
+    start=cuda.Event()
+    end=cuda.Event()
+    start.record()
+
     #Copies the memory from CPU to GPU
     # start = time.time()
     cuda.memcpy_htod(cuda_particles, particles)
     cuda.memcpy_htod(cuda_measurements, measurements)
     cuda.memcpy_htod(cuda_cov, measurement_cov)
+    # cuda_htod.append(time.time() - start)
 
     threshold = 0.1
 
-    print("before CUDA")
+    # start = time.time()
     func = cuda_update.get_function("update")
-    func(cuda_particles, cuda_measurements, np.int32(FlatParticle.len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(16, 16, 1), grid=(8, 8, 1))
-    print("after CUDA")
-    # new_particles = np.empty_like(particles)
-    # new_particles = np.empty_like(particles)
+    func(cuda_particles, cuda_measurements, np.int32(FlatParticle.len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(1024, 1, 1), grid=(2, 1, 1))
+    # cuda_time.append(time.time() - start)
+
+    # start = time.time()
+    # particles = np.empty_like(particles)
+
     cuda.memcpy_dtoh(particles, cuda_particles)
-    # print("cuda_took: ", (time.time() - start))
+
+    end.record()
+    end.synchronize()
+    cuda_time.append(start.time_till(end))
+    # cuda_dtoh.append(time.time() - start)
 
     # start = time.time()
     FlatParticle.rescale(particles)
+    # cuda_time.append(time.time() - start)
+
 
     # print("rescale took:", time.time() - start)
 
@@ -105,6 +123,8 @@ if __name__ == "__main__":
 
     PLOT = True
     MAX_DIST = 3
+    visible = []
+    mean_landmarks = []
 
     if PLOT:
         fig, ax = plt.subplots()
@@ -147,12 +167,13 @@ if __name__ == "__main__":
     
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 4096
-    MAX_LANDMARKS = 70
+    N = 2048
+    MAX_LANDMARKS = 250
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
+    print("nbytes", particles.nbytes)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (120, 1)),
+        np.tile([0.13, 0.7], (500, 1)),
         # np.tile([0.3, 0.7], (4, 1)),
         # np.tile([0.0, 0.7], (6, 1)),
         # np.tile([0.3, 0.7], (5, 1)),
@@ -212,6 +233,7 @@ if __name__ == "__main__":
 
         z_real = np.array(z_real)
         visible_landmarks = np.array(visible_landmarks, dtype=np.float)
+        visible.append(visible_landmarks.size)
         # plot_measurement(ax, real_position[:2], z_real, color="red")
 
         # start = time.time()
@@ -238,6 +260,18 @@ if __name__ == "__main__":
             print("resample", FlatParticle.neff(particles))
             particles = FlatParticle.resample_particles(particles)
 
-        print("loop time:", time.time() - loop_time)
+        # print("loop time:", time.time() - loop_time)
         # free, total = cuda.mem_get_info()
         # print(f"F: {free} T:{total}, F/T {free/total}")
+        print("Mean particles: ", FlatParticle.mean_particles(particles))
+        mean_landmarks.append(FlatParticle.mean_particles(particles))
+
+
+    # print("Mean HTOD time: ", np.mean(cuda_htod))
+    print("Mean CUDA time: ", np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000)
+    print(cuda_time)
+    print(visible)
+    print(mean_landmarks)
+    # print("Mean DTOH time: ", np.mean(cuda_dtoh))
+
+    # print(cuda_time)

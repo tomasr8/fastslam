@@ -29,6 +29,13 @@ __device__ int get_n_landmarks(float *particle)
 __device__ void add_landmark(float *particle, float mean[2], float *cov)
 {
     int n_landmarks = (int)particle[5];
+    int max_landmarks = (int)particle[4];
+
+    if(n_landmarks == max_landmarks) {
+        printf("!!!!!!!!!!!!!!! MAX LANDMARKS REACHED !!!!!!!!!!!!!!!!!!!!!!\n");
+        return;
+    }
+    // printf("n_l %d\n", n_landmarks);
     particle[5] = (float)(n_landmarks + 1);
 
     float *new_mean = get_mean(particle, n_landmarks);
@@ -239,15 +246,18 @@ __device__ float pdf(float *x, float *mean, float* cov)
     return exp(-0.5 * (2*log2pi + maha + logdet));
 }
 
-__device__ void compute_dist_matrix(float *landmarks, float measurements[][2], dist_matrix *matrix, float *landmarks_cov, float *measurement_cov)
+__device__ void compute_dist_matrix(float *particle, float measurements[][2], dist_matrix *matrix, float *measurement_cov)
 {
-    // printf("---\n");
-    // printf("m_cov: [%f %f %f %f]\n", measurement_cov[0], measurement_cov[1], measurement_cov[2], measurement_cov[3]);
+    float pos[] = { particle[0], particle[1] };
+    float *landmarks_cov = get_cov(particle, 0);
+
     for(int i = 0; i < matrix->n_landmarks; i++) {
-        // printf("lm_cov: [%f %f %f %f]\n", landmarks_cov[4*i], landmarks_cov[4*i+1], landmarks_cov[4*i+2], landmarks_cov[4*i+3]);
+        float *landmark = get_mean(particle, i);
 
         for(int j = 0; j < matrix->n_measurements; j++) {
-
+            float measurement_predicted[] = {
+                landmark[0] - pos[0], landmark[1] - pos[1]
+            };
 
             float cov[4] = {
                 landmarks_cov[4*i] + measurement_cov[0],
@@ -255,14 +265,9 @@ __device__ void compute_dist_matrix(float *landmarks, float measurements[][2], d
                 landmarks_cov[4*i+2] + measurement_cov[2],
                 landmarks_cov[4*i+3] + measurement_cov[3]
             };
-            float landmark[] = { landmarks[2*i], landmarks[2*i + 1] };
-            matrix->matrix[i * matrix->n_measurements + j] = pdf(landmark, measurements[j], cov);
-            // printf("%.15f [%f %f], [%f %f], [%f %f %f %f]\n", pdf(landmarks[i], measurements[j], cov),
-                // landmarks[i][0], landmarks[i][1], measurements[j][0], measurements[j][1], cov[0], cov[1], cov[2], cov[3]);
+            matrix->matrix[i * matrix->n_measurements + j] = pdf(measurement_predicted, measurements[j], cov);
         }
     }
-    // printf("---\n");
-
 }
 
 __device__ void assign(dist_matrix *matrix, assignment *assignment, float threshold) {
@@ -279,20 +284,11 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
         }
     }
 
-    // float *dist_matrix = malloc(n_landmarks * n_measurements * sizeof(float));
-    float *matrix_copy = (float *)malloc(n_landmarks * n_measurements * sizeof(float));
-    for (int i = 0; i < n_landmarks * n_measurements; i++) {
-        matrix_copy[i] = matrix->matrix[i]; 
-    }
-
-    quicksort(matrix_copy, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
-
-    free(matrix_copy);
+    quicksort(matrix->matrix, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
 
     int assigned_total = 0;
-    float cost = 0;
 
-    for(int i = 0; i < n_landmarks * n_measurements; i++) {
+    for(int i = 0; i < (n_landmarks * n_measurements); i++) {
         int a = landmark_idx[i];
         int b = measurement_idx[i];
 
@@ -300,12 +296,11 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
             continue;
         }
         
-        if(matrix->matrix[a * n_measurements + b] > threshold){
+        if(matrix->matrix[i] > threshold){
             assignment->assignment[a] = b;
             assignment->assigned_landmarks[a] = true;
             assignment->assigned_measurements[b] = true;
             assigned_total += 1;
-            cost += matrix->matrix[a * n_measurements + b];
         }
 
         if(assigned_total == n_landmarks) {
@@ -313,48 +308,21 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
         }
     }
 
-    // printf("Cost: %f\n", cost);
-
     free(landmark_idx);
     free(measurement_idx);
 }
 
 __device__ void associate_landmarks_measurements(float *particle, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
     if(n_landmarks > 0 && n_measurements > 0) {
-        float pos[] = { particle[0], particle[1] };
-        float *measurement_predicted = (float *)malloc(2 * n_landmarks * sizeof(float));
-        if(measurement_predicted == NULL) {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED mp\n");
-        }
-
-        for(int i = 0; i < n_landmarks; i++) {
-            // measurement_predicted[i] = (float *)malloc(2 * sizeof(float));
-            float *landmark = get_mean(particle, i);
-            measurement_predicted[2*i] = landmark[0] - pos[0];
-            measurement_predicted[2*i + 1] = landmark[1] - pos[1];
-        }
-
-        float *landmarks_cov = get_cov(particle, 0);
 
         dist_matrix *matrix = (dist_matrix *)malloc(sizeof(dist_matrix));
-        if(matrix == NULL) {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED matrix\n");
-        }
         matrix->matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));
-        if(matrix->matrix == NULL) {
-            printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED matrix->matrix %d\n", n_landmarks * n_measurements);
-        }
         matrix->n_landmarks = n_landmarks;
         matrix->n_measurements = n_measurements;
 
-        compute_dist_matrix(measurement_predicted, measurements, matrix, landmarks_cov, measurement_cov);
+        compute_dist_matrix(particle, measurements, matrix, measurement_cov);
 
         assign(matrix, assignment, threshold);
-
-        // for(int i = 0; i < n_landmarks; i++) {
-        //     free(measurement_predicted[i]);
-        // }
-        free(measurement_predicted);
 
         free(matrix->matrix);
         free(matrix);
@@ -366,32 +334,21 @@ __device__ void update_landmark(float *particle, float measurements[][2], assign
     float x = particle[0];
     float y = particle[1];
     int n_landmarks = get_n_landmarks(particle);
-    // printf("in update landmark %d\n", n_landmarks);
 
     for(int i = 0; i < n_landmarks; i++) {
-        // printf("in update lm loop %d\n", i);
         int j = assignment->assignment[i];
-        // printf("%d -> %d\n", i, j);
 
         if(j == -1) {
             continue;
         }
 
-        // printf("here-2\n");
-
         float *mean = get_mean(particle, i);
         float mean_x = mean[0];
         float mean_y = mean[1];
 
-        // printf("here-1\n");
-
         float measurement_predicted[2] = { mean_x - x, mean_y - y };
-        // printf("here\n");
         float residual[2] = { measurements[j][0] - measurement_predicted[0], measurements[j][1] - measurement_predicted[1] };
 
-        // printf("residual: [%f %f]\n", residual[0], residual[1]);
-
-        // printf("here0\n");
         float *cov = get_cov(particle, i);
 
         float Q[4] = {
@@ -401,23 +358,15 @@ __device__ void update_landmark(float *particle, float measurements[][2], assign
             cov[3] + measurement_cov[3]
         };
 
-        // printf("Q: [%f %f %f %f]\n", Q[0], Q[1], Q[2], Q[3]);
-
-
         float K[4] = { 0, 0, 0, 0 };
         float Q_inv[4] = { 0, 0, 0, 0 };
         pinv(Q, Q_inv);
         matmul(cov, Q_inv, K);
 
-        // printf("K: [%f %f %f %f]\n", K[0], K[1], K[2], K[3]);
-
         float K_residual[] = { 0, 0 };
         vecmul(K, residual, K_residual);
         mean[0] += K_residual[0];
         mean[1] += K_residual[1];
-
-        // printf("here2\n");
-
 
         float new_cov[] = { 1 - K[0], K[1], K[2], 1 - K[3] };
         matmul(new_cov, cov, new_cov);
@@ -426,17 +375,12 @@ __device__ void update_landmark(float *particle, float measurements[][2], assign
         cov[2] = new_cov[2];
         cov[3] = new_cov[3];
 
-        // printf("here3\n");
-
         particle[3] *= pdf(measurements[j], measurement_predicted, Q);
-        // printf("%f %f %f %f %f\n", measurements[j][0], measurements[j][1], measurement_predicted[0], measurement_predicted[1], pdf(measurements[j], measurement_predicted, Q));
     }
 }
 
 __global__ void update(float *particles, float measurements[][2], int n_particles, int n_measurements, float *measurement_cov, float threshold)
 {
-    // int i = threadIdx.x + blockIdx.x * blockDim.x;
-
     int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
     int i = blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
 
@@ -457,14 +401,6 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
     bool *assigned_landmarks = (bool *)malloc(n_landmarks * sizeof(bool));
     bool *assigned_measurements = (bool *)malloc(n_measurements * sizeof(bool));
 
-    if(assigned_landmarks == NULL) {
-        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x1\n");
-    }
-
-    if(assigned_measurements == NULL) {
-        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x2\n");
-    }
-
     for(int i = 0; i < n_landmarks; i++) {
         assigned_landmarks[i] = false;
     }
@@ -478,18 +414,12 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
         assignment_lm[i] = -1;
     }
 
-    if(assignment_lm == NULL) {
-        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x3\n");
-    }
-
     assignment *assignmentx = (assignment*)malloc(sizeof(assignment));
-    if(assignmentx == NULL) {
-        printf(">>>>>>>>>>>>>>>>>>>>>>>> MALLOC FAILED x4\n");
-    }
     assignmentx->assignment = assignment_lm;
     assignmentx->assigned_landmarks = assigned_landmarks;
     assignmentx->assigned_measurements = assigned_measurements;
 
+    // printf("%d ====\n", i);
     associate_landmarks_measurements(
         particle, measurements,
         n_landmarks, n_measurements, assignmentx,
@@ -499,6 +429,9 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
     update_landmark(particle, measurements, assignmentx, n_measurements, measurement_cov);
 
     add_unassigned_measurements_as_landmarks(particle, assignmentx->assigned_measurements, measurements, n_measurements, measurement_cov);
+    // printf("%d ^^^^\n", i);
+
+
 
     free(assignmentx->assigned_landmarks);
     free(assignmentx->assigned_measurements);

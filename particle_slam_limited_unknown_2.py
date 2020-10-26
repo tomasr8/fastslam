@@ -93,7 +93,9 @@ def update(particles, z_real, observation_variance, cuda_particles, cuda_measure
 
     # start = time.time()
     func = cuda_update.get_function("update")
-    func(cuda_particles, cuda_measurements, np.int32(FlatParticle.len(particles)), np.int32(len(measurements)), cuda_cov, np.float32(threshold), block=(1024, 1, 1), grid=(2, 1, 1))
+    func(cuda_particles, cuda_measurements,
+        np.int32(FlatParticle.len(particles)), np.int32(len(measurements)),
+        cuda_cov, np.float32(threshold), block=(256, 1, 1), grid=(1, 1, 1))
     # cuda_time.append(time.time() - start)
 
     # start = time.time()
@@ -167,13 +169,13 @@ if __name__ == "__main__":
     
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 2048
+    N = 4096
     MAX_LANDMARKS = 250
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
     print("nbytes", particles.nbytes)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (500, 1)),
+        np.tile([0.13, 0.7], (40, 1)),
         # np.tile([0.3, 0.7], (4, 1)),
         # np.tile([0.0, 0.7], (6, 1)),
         # np.tile([0.3, 0.7], (5, 1)),

@@ -103,7 +103,7 @@ __device__ int partition(float arr[], int lm[], int me[], int l, int h)
     swap_idx(&lm[i + 1], &lm[h]);
     swap_idx(&me[i + 1], &me[h]);
     return (i + 1);
-} 
+}
 
 __device__ void quicksort(float arr[], int lm[], int me[], int l, int h) 
 { 
@@ -143,7 +143,29 @@ __device__ void quicksort(float arr[], int lm[], int me[], int l, int h)
     }
 
     free(stack);
+}
+
+__device__ void insertionSort(float arr[], int lm[], int me[], int n) 
+{ 
+    int i, key, lm_key, me_key, j; 
+    for (i = 1; i < n; i++) { 
+        key = arr[i];
+        lm_key = lm[i];
+        me_key = me[i];
+        j = i - 1; 
+  
+        while (j >= 0 && arr[j] > key) { 
+            arr[j + 1] = arr[j];
+            lm[j + 1] = lm[j];
+            me[j + 1] = me[j];
+            j = j - 1; 
+        } 
+        arr[j + 1] = key;
+        lm[j + 1] = lm_key;
+        me[j + 1] = me_key; 
+    } 
 } 
+
 
 // =================================================
 // =================================================
@@ -269,8 +291,17 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
     int n_landmarks = matrix->n_landmarks;
     int n_measurements = matrix->n_measurements;
 
-    int *landmark_idx = (int *)malloc(n_landmarks * n_measurements * sizeof(int));
-    int *measurement_idx = (int *)malloc(n_landmarks * n_measurements * sizeof(int));
+    // int usable = 0;
+    // for (int i = 0; i < n_landmarks * n_measurements; i++) {
+    //     if(matrix->matrix[i] > threshold) {
+    //         usable++;
+    //     }
+    // }
+
+    void *mem = (void *)malloc(3 * n_landmarks * n_measurements * sizeof(int));
+    int *landmark_idx = (int *)mem;
+    int *measurement_idx = landmark_idx + (n_landmarks * n_measurements);
+    float *matrix_copy = (float *)(measurement_idx + (n_landmarks * n_measurements));
 
     for(int i = 0; i < n_landmarks; i++) {
         for(int j = 0; j < n_measurements; j++) {
@@ -278,16 +309,17 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
             measurement_idx[i * n_measurements + j] = j;
         }
     }
-
-    // float *dist_matrix = malloc(n_landmarks * n_measurements * sizeof(float));
-    float *matrix_copy = (float *)malloc(n_landmarks * n_measurements * sizeof(float));
+    
     for (int i = 0; i < n_landmarks * n_measurements; i++) {
         matrix_copy[i] = matrix->matrix[i]; 
     }
+    // printf("Usable: %d/%d\n", usable, (n_landmarks * n_measurements));
 
-    quicksort(matrix_copy, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
+    // quicksort(matrix_copy, landmark_idx, measurement_idx, 0, (n_landmarks * n_measurements) - 1);
+    insertionSort(matrix_copy, landmark_idx, measurement_idx, (n_landmarks * n_measurements));
 
-    free(matrix_copy);
+
+    // free(matrix_copy);
 
     int assigned_total = 0;
     float cost = 0;
@@ -315,50 +347,24 @@ __device__ void assign(dist_matrix *matrix, assignment *assignment, float thresh
 
     // printf("Cost: %f\n", cost);
 
-    free(landmark_idx);
-    free(measurement_idx);
+    // free(landmark_idx);
+    // free(measurement_idx);
+    free(mem);
 }
 
 __device__ void associate_landmarks_measurements(float *particle, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
     if(n_landmarks > 0 && n_measurements > 0) {
-        // float pos[] = { particle[0], particle[1] };
-        // float *measurement_predicted = (float *)malloc(2 * n_landmarks * sizeof(float));
-        // if(measurement_predicted == NULL) {
-        //     printf("!!!!!!!!!!!!!!!!!!!!!!!!!!!============= MALLOC FAILED mp\n");
-        // }
+        dist_matrix matrix;
+        matrix.matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));
+        matrix.n_landmarks = n_landmarks;
+        matrix.n_measurements = n_measurements;
 
-        // for(int i = 0; i < n_landmarks; i++) {
-        //     // measurement_predicted[i] = (float *)malloc(2 * sizeof(float));
-        //     float *landmark = get_mean(particle, i);
-        //     measurement_predicted[2*i] = landmark[0] - pos[0];
-        //     measurement_predicted[2*i + 1] = landmark[1] - pos[1];
-        // }
+        compute_dist_matrix(particle, measurements, &matrix, measurement_cov);
 
-        // float *landmarks_cov = get_cov(particle, 0);
+        assign(&matrix, assignment, threshold);
 
-        dist_matrix *matrix = (dist_matrix *)malloc(sizeof(dist_matrix));
-        matrix->matrix = (float *)malloc(n_landmarks * n_measurements * sizeof(float));;
-        matrix->n_landmarks = n_landmarks;
-        matrix->n_measurements = n_measurements;
-
-        compute_dist_matrix(particle, measurements, matrix, measurement_cov);
-
-        assign(matrix, assignment, threshold);
-
-        // for(int i = 0; i < n_landmarks; i++) {
-        //     free(measurement_predicted[i]);
-        // }
-        // free(measurement_predicted);
-
-        free(matrix->matrix);
-        free(matrix);
-    } else {
-        // add_unassigned_measurements_as_landmarks(particle, assignment->assigned_measurements, measurements, n_measurements, measurement_cov);
+        free(matrix.matrix);
     }
-    // free(assigned_landmarks);
-    // free(assigned_measurements);
-    // free(assignment_lm);
-    // free(assignment);
 }
 
 __device__ void update_landmark(float *particle, float measurements[][2], assignment *assignment, int n_measurements, float *measurement_cov)
@@ -437,70 +443,93 @@ __global__ void update(float *particles, float measurements[][2], int n_particle
 {
     // int i = threadIdx.x + blockIdx.x * blockDim.x;
 
+    if(n_measurements == 0) {
+        return;
+    }
+
     int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
     int i = blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
 
-    if(i >= n_particles) {
-        return;
+    int BLOCK = 16;
+
+    int max_landmarks = 0;
+    for(int k = 0; k < BLOCK; k++) {
+        float *particle = get_particle(particles, i*BLOCK + k);
+        int n_landmarks = get_n_landmarks(particle);
+
+        if(n_landmarks > max_landmarks) {
+            max_landmarks = n_landmarks;
+        }
+
+        if((i*BLOCK + k) >= n_particles) {
+            break;
+        }
     }
 
-    if(i == 0) {
-        printf(">>>>> Started kernel <<<<<\n");
+    int assignment_memory_size = (2 * max_landmarks + n_measurements) * sizeof(int);
+    int *assignment_memory;;
+
+    if(assignment_memory_size > 0) {
+        assignment_memory = (int *)malloc(assignment_memory_size);
     }
 
-    float *particle = get_particle(particles, i);
-    int n_landmarks = get_n_landmarks(particle);
 
-    if(n_measurements == 0) {
-        return;
-    } else if(n_landmarks == 0 && n_measurements > 0) {
-        add_measurements_as_landmarks(particle, measurements, n_measurements, measurement_cov);
-        return;
+    for(int k = 0; k < BLOCK; k++) {
+        if((i*BLOCK + k) >= n_particles) {
+            return;
+        }
+        
+        float *particle = get_particle(particles, i*BLOCK + k);
+        int n_landmarks = get_n_landmarks(particle);
+    
+        if(n_landmarks == 0) {
+            add_measurements_as_landmarks(particle, measurements, n_measurements, measurement_cov);
+            continue;
+        }
+
+
+        bool *assigned_landmarks = (bool *)assignment_memory;
+        bool *assigned_measurements = (bool *)(assignment_memory + n_landmarks);
+        int *assignment_lm = (int *)(assignment_memory + n_landmarks + n_measurements);
+
+    
+        for(int i = 0; i < n_landmarks; i++) {
+            assigned_landmarks[i] = false;
+        }
+    
+        for(int i = 0; i < n_measurements; i++) {
+            assigned_measurements[i] = false;
+        }
+    
+        for(int i = 0; i < n_landmarks; i++) {
+            assignment_lm[i] = -1;
+        }
+
+
+        assignment assignmentx;
+        assignmentx.assignment = assignment_lm;
+        assignmentx.assigned_landmarks = assigned_landmarks;
+        assignmentx.assigned_measurements = assigned_measurements;
+    
+        associate_landmarks_measurements(
+            particle, measurements,
+            n_landmarks, n_measurements, &assignmentx,
+            measurement_cov, threshold
+        );
+    
+        update_landmark(particle, measurements, &assignmentx, n_measurements, measurement_cov);
+    
+        add_unassigned_measurements_as_landmarks(particle, assignmentx.assigned_measurements, measurements, n_measurements, measurement_cov);
+    
+        // free(assignmentx.assigned_landmarks);
+        // free(assignmentx.assigned_measurements);
+        // free(assignmentx.assignment);
+
+        // free(assignment_memory);
     }
 
-    bool *assigned_landmarks = (bool *)malloc(n_landmarks * sizeof(bool));
-    bool *assigned_measurements = (bool *)malloc(n_measurements * sizeof(bool));
-
-    for(int i = 0; i < n_landmarks; i++) {
-        assigned_landmarks[i] = false;
-    }
-
-    for(int i = 0; i < n_measurements; i++) {
-        assigned_measurements[i] = false;
-    }
-
-    int *assignment_lm = (int *)malloc(n_landmarks * sizeof(int));
-    for(int i = 0; i < n_landmarks; i++) {
-        assignment_lm[i] = -1;
-    }
-
-    assignment *assignmentx = (assignment*)malloc(sizeof(assignment));
-    assignmentx->assignment = assignment_lm;
-    assignmentx->assigned_landmarks = assigned_landmarks;
-    assignmentx->assigned_measurements = assigned_measurements;
-
-    // float mean[] = {1.0, 2.0};
-    // add_landmark(particle, mean, measurement_cov);
-    // add_landmark(particle, mean, measurement_cov);
-
-
-    associate_landmarks_measurements(
-        particle, measurements,
-        n_landmarks, n_measurements, assignmentx,
-        measurement_cov, threshold
-    );
-
-    update_landmark(particle, measurements, assignmentx, n_measurements, measurement_cov);
-
-    add_unassigned_measurements_as_landmarks(particle, assignmentx->assigned_measurements, measurements, n_measurements, measurement_cov);
-
-    free(assignmentx->assigned_landmarks);
-    free(assignmentx->assigned_measurements);
-    free(assignmentx->assignment);
-    free(assignmentx);
-
-    if(i == 0) {
-        printf(">>>>> Finished kernel <<<<<\n");
+    if(assignment_memory_size > 0) {
+        free(assignment_memory);
     }
 
 }

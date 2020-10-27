@@ -123,7 +123,10 @@ if __name__ == "__main__":
 
     np.random.seed(2)
 
+    # PLOT = False
     PLOT = True
+    # N = 16384
+    N = 1024
     MAX_DIST = 3
     visible = []
     mean_landmarks = []
@@ -169,7 +172,6 @@ if __name__ == "__main__":
     
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 4096
     MAX_LANDMARKS = 250
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
     print("nbytes", particles.nbytes)
@@ -258,7 +260,7 @@ if __name__ == "__main__":
             plot_particles_weight(ax, particles)
             plot_measurement(ax, real_position[:2], z_real, color="red")
 
-        if FlatParticle.neff(particles) < N/2:
+        if FlatParticle.neff(particles) < 0.7*N:
             print("resample", FlatParticle.neff(particles))
             particles = FlatParticle.resample_particles(particles)
 
@@ -267,6 +269,7 @@ if __name__ == "__main__":
         # print(f"F: {free} T:{total}, F/T {free/total}")
         print("Mean particles: ", FlatParticle.mean_particles(particles))
         mean_landmarks.append(FlatParticle.mean_particles(particles))
+        print("Max currl landmarks", FlatParticle.max_current_landmarks(particles))
 
 
     # print("Mean HTOD time: ", np.mean(cuda_htod))

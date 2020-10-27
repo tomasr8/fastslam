@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from filterpy.monte_carlo import systematic_resample
+from numpy.random import random
 
 class Particle(object):
     def __init__(self, x: float, y: float, theta: float, n_landmarks: int, w: float):
@@ -116,6 +116,25 @@ class Particle(object):
             p.landmark_covariances = landmark_covariances
 
 
+def systematic_resample(weights):
+    N = len(weights)
+
+    # make N subdivisions, and choose positions with a consistent random offset
+    positions = (random() + np.arange(N)) / N
+
+    indexes = np.zeros(N, 'i')
+    cumulative_sum = np.cumsum(weights)
+
+    i, j = 0, 0
+    while i < N:
+        # j == N-1 prevents float imprecision when summing many elements
+        if j == N-1 or positions[i] < cumulative_sum[j]:
+            indexes[i] = j
+            i += 1
+        else:
+            j += 1
+    return indexes
+
 class FlatParticle(object):
     @staticmethod
     def x(particles):
@@ -146,6 +165,12 @@ class FlatParticle(object):
         max_landmarks = int(particles[4])
         step = 6 + 6*max_landmarks
         return np.mean(particles[5::step])
+
+    @staticmethod
+    def max_current_landmarks(particles):
+        max_landmarks = int(particles[4])
+        step = 6 + 6*max_landmarks
+        return np.max(particles[5::step])
 
     @staticmethod
     def get_particle(particles, i):
@@ -218,7 +243,12 @@ class FlatParticle(object):
         size = 6 + 6*max_landmarks
 
         weights = FlatParticle.w(particles)
-        indexes = systematic_resample(weights)
+        print("W:", weights.shape, len(weights), np.sum(np.isnan(weights)))
+        try:
+            indexes = systematic_resample(weights)
+        except IndexError as e:
+            np.savetxt("weights.txt", weights)
+            raise e
 
         new_particles = particles.copy()
         for i, index in enumerate(indexes):

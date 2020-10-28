@@ -209,7 +209,7 @@ __device__ void compute_dist_matrix(float *particle, float measurements[][2], di
     }
 }
 
-__device__ void assign(int x, dist_matrix *matrix, int *data_assoc_memory, assignment *assignment, float threshold) {
+__device__ void assign(dist_matrix *matrix, int *data_assoc_memory, assignment *assignment, float threshold) {
     int n_landmarks = matrix->n_landmarks;
     int n_measurements = matrix->n_measurements;
 
@@ -244,7 +244,7 @@ __device__ void assign(int x, dist_matrix *matrix, int *data_assoc_memory, assig
     }
 }
 
-__device__ void associate_landmarks_measurements(int i, float *particle, float *m, int *data_assoc_memory, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
+__device__ void associate_landmarks_measurements(float *particle, float *m, int *data_assoc_memory, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
     dist_matrix matrix;
     matrix.matrix = m;
     matrix.n_landmarks = n_landmarks;
@@ -252,7 +252,7 @@ __device__ void associate_landmarks_measurements(int i, float *particle, float *
 
     compute_dist_matrix(particle, measurements, &matrix, measurement_cov);
 
-    assign(i, &matrix, data_assoc_memory, assignment, threshold);
+    assign(&matrix, data_assoc_memory, assignment, threshold);
 }
 
 __device__ void update_landmark(float *particle, float measurements[][2], assignment *assignment, int n_measurements, float *measurement_cov)
@@ -306,19 +306,20 @@ __device__ void update_landmark(float *particle, float measurements[][2], assign
     }
 }
 
-__device__ int get_max_landmarks_in_block(float *particles, int block_size, int i, int n_particles) {
+__device__ int get_max_landmarks_in_block(float *particles, int block_size, int thread_id, int n_particles) {
     int max_landmarks = 0;
 
     for(int k = 0; k < block_size; k++) {
-        float *particle = get_particle(particles, i*block_size + k);
+        int particle_id = thread_id*block_size + k;
+        if(particle_id >= n_particles) {
+            break;
+        }
+
+        float *particle = get_particle(particles, particle_id);
         int n_landmarks = get_n_landmarks(particle);
 
         if(n_landmarks > max_landmarks) {
             max_landmarks = n_landmarks;
-        }
-
-        if((i*block_size + k) >= n_particles) {
-            break;
         }
     }
 
@@ -335,10 +336,10 @@ __global__ void update(
         return;
     }
 
-    int blockId = blockIdx.x+ blockIdx.y * gridDim.x;
-    int i = blockId * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+    int block_id = blockIdx.x+ blockIdx.y * gridDim.x;
+    int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
 
-    int max_landmarks = get_max_landmarks_in_block(particles, block_size, i, n_particles);
+    int max_landmarks = get_max_landmarks_in_block(particles, block_size, thread_id, n_particles);
 
     int scratchpad_size = (
             max_landmarks + n_measurements +
@@ -357,11 +358,12 @@ __global__ void update(
 
 
     for(int k = 0; k < block_size; k++) {
-        if((i*block_size + k) >= n_particles) {
+        int particle_id = thread_id*block_size + k;
+        if(particle_id >= n_particles) {
             return;
         }
         
-        float *particle = get_particle(particles, i*block_size + k);
+        float *particle = get_particle(particles, particle_id);
         int n_landmarks = get_n_landmarks(particle);
     
         if(n_landmarks == 0) {
@@ -385,7 +387,7 @@ __global__ void update(
         assignmentx.assigned_measurements = assigned_measurements;
     
         associate_landmarks_measurements(
-            i, particle, matrix_memory, data_assoc_memory, measurements,
+            particle, matrix_memory, data_assoc_memory, measurements,
             n_landmarks, n_measurements, &assignmentx,
             measurement_cov, threshold
         );

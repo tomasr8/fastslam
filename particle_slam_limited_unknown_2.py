@@ -131,9 +131,9 @@ if __name__ == "__main__":
     # PLOT = False
     PLOT = True
     # N = 16384
-    N = 2048
-    LENGTH = 50
-    THREADS = 256
+    N = 4096
+    LENGTH = 100
+    THREADS = 512
     BLOCK_SIZE = int(N/THREADS)
     
     MAX_DIST = 3

@@ -70,7 +70,10 @@ def move_vehicle_stochastic(pos, u, dt, sigmas):
     return np.array([x, y, theta], dtype=np.float32)
 
 
-def update(particles, z_real, observation_variance, cuda_particles, cuda_measurements, cuda_cov):
+def update(
+    particles, threads, block_size, z_real, observation_variance, cuda_particles,
+    # cuda_scratchpad, scratchpad_size,
+    cuda_measurements, cuda_cov):
     measurements = z_real.astype(np.float32)
 
     measurement_cov = np.float32([
@@ -93,9 +96,11 @@ def update(particles, z_real, observation_variance, cuda_particles, cuda_measure
 
     # start = time.time()
     func = cuda_update.get_function("update")
-    func(cuda_particles, cuda_measurements,
+    func(cuda_particles, np.int32(block_size), cuda_measurements,
         np.int32(FlatParticle.len(particles)), np.int32(len(measurements)),
-        cuda_cov, np.float32(threshold), block=(256, 1, 1), grid=(1, 1, 1))
+        cuda_cov, np.float32(threshold),
+        #cuda_scratchpad, np.int32(scratchpad_size/threads),
+        block=(threads, 1, 1), grid=(1, 1, 1))
     # cuda_time.append(time.time() - start)
 
     # start = time.time()
@@ -126,9 +131,10 @@ if __name__ == "__main__":
     # PLOT = False
     PLOT = True
     # N = 16384
-    N = 1024
+    N = 512
+    THREADS = 256
+    BLOCK_SIZE = int(N/THREADS)
     MAX_DIST = 3
-    visible = []
     mean_landmarks = []
 
     if PLOT:
@@ -174,15 +180,10 @@ if __name__ == "__main__":
 
     MAX_LANDMARKS = 250
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
-    print("nbytes", particles.nbytes)
+    # print("nbytes", particles.nbytes)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (40, 1)),
-        # np.tile([0.3, 0.7], (4, 1)),
-        # np.tile([0.0, 0.7], (6, 1)),
-        # np.tile([0.3, 0.7], (5, 1)),
-        # np.tile([0.0, 0.7], (11, 1)),
-        # np.tile([0.3, 0.7], (4, 1)),
+        np.tile([0.13, 0.7], (10, 1))
     ))
 
     real_position_history = [real_position]
@@ -191,12 +192,12 @@ if __name__ == "__main__":
     movement_variance = [0.03, 0.05]
     measurement_variance = [0.1, 0.1]
 
-    # print(particles.nbytes / N)
-    # raise Exception
-
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 6*MAX_LANDMARKS))
+    MAX_MEASUREMENTS = 50
+    # scratchpad_size = THREADS * (2*MAX_LANDMARKS + MAX_MEASUREMENTS + (4 * MAX_LANDMARKS * MAX_MEASUREMENTS))
+    # cuda_scratchpad = cuda.mem_alloc(scratchpad_size)
     cuda_measurements = cuda.mem_alloc(1024)
-    cuda_cov = cuda.mem_alloc(32)
+    cuda_cov = cuda.mem_alloc(16)
 
     for i in range(u.shape[0]):
         loop_time = time.time()
@@ -224,27 +225,26 @@ if __name__ == "__main__":
         # measurements = get_noisy_measurements(real_position[:2], visible_landmarks, measurement_variance)
 
 
-        z_real = []
-        visible_landmarks = []
-        landmark_indices = []
+        all_measurements = []
+        visible_measurements = []
         for i, landmark in enumerate(landmarks):
             z = get_measurement_stochastic(real_position[:2], landmark, measurement_variance)
-            z_real.append(z)
+            all_measurements.append(z)
 
             if dist(landmark, real_position) < MAX_DIST:
-                visible_landmarks.append(landmark)
-                landmark_indices.append(i)
+                visible_measurements.append(z)
 
-        z_real = np.array(z_real)
-        visible_landmarks = np.array(visible_landmarks, dtype=np.float)
-        visible.append(visible_landmarks.size)
+        all_measurements = np.array(all_measurements, dtype=np.float32)
+        visible_measurements = np.array(visible_measurements, dtype=np.float32)
+
         # plot_measurement(ax, real_position[:2], z_real, color="red")
 
-        # start = time.time()
-        particles = update(particles, z_real[landmark_indices], measurement_variance, cuda_particles, cuda_measurements, cuda_cov)
-        # print(particles.nbytes, 4 * N * (6 + 6*MAX_LANDMARKS))
-        # print(particles.nbytes)
-        # print("took: ", (time.time() - start))
+        particles = update(
+            particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
+            cuda_particles,
+            # cuda_scratchpad, scratchpad_size,
+            cuda_measurements, cuda_cov)
+
         # plt.pause(2)
 
         predicted_position_history.append(FlatParticle.get_mean_position(particles))
@@ -256,11 +256,11 @@ if __name__ == "__main__":
             plot_landmarks(ax, landmarks)
             plot_history(ax, real_position_history, color='green')
             plot_history(ax, predicted_position_history, color='orange')
-            plot_connections(ax, real_position, z_real[landmark_indices, :] + real_position[:2])
+            plot_connections(ax, real_position, visible_measurements + real_position[:2])
             plot_particles_weight(ax, particles)
-            plot_measurement(ax, real_position[:2], z_real, color="red")
+            plot_measurement(ax, real_position[:2], all_measurements, color="red")
 
-        if FlatParticle.neff(particles) < 0.7*N:
+        if FlatParticle.neff(particles) < 0.6*N:
             print("resample", FlatParticle.neff(particles))
             particles = FlatParticle.resample_particles(particles)
 
@@ -275,7 +275,6 @@ if __name__ == "__main__":
     # print("Mean HTOD time: ", np.mean(cuda_htod))
     print("Mean CUDA time: ", np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000)
     print(cuda_time)
-    print(visible)
     print(mean_landmarks)
     # print("Mean DTOH time: ", np.mean(cuda_dtoh))
 

@@ -131,9 +131,11 @@ if __name__ == "__main__":
     # PLOT = False
     PLOT = True
     # N = 16384
-    N = 512
+    N = 2048
+    LENGTH = 50
     THREADS = 256
     BLOCK_SIZE = int(N/THREADS)
+    
     MAX_DIST = 3
     mean_landmarks = []
 
@@ -183,7 +185,7 @@ if __name__ == "__main__":
     # print("nbytes", particles.nbytes)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (10, 1))
+        np.tile([0.13, 0.7], (LENGTH, 1))
     ))
 
     real_position_history = [real_position]

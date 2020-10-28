@@ -3,7 +3,27 @@
 #include <math.h>
 
 #define M_PI 3.14159265359
-// particle
+#define MIN(a,b) (((a)<(b))?(a):(b))
+
+typedef struct 
+{
+    float *matrix;
+    int n_landmarks;
+    int n_measurements;
+} dist_matrix;
+
+typedef struct 
+{
+    int *assignment;
+    bool *assigned_measurements;
+} assignment;
+
+typedef struct 
+{
+    int n_measurements;
+    float *measurement_cov;
+    float measurements[][2];
+} landmark_measurements;
 
 __device__ float* get_particle(float *particles, int i) {
     int max_landmarks = (int)particles[4];
@@ -67,12 +87,7 @@ __device__ void add_measurements_as_landmarks(float *particle, float measurement
     }
 }
 
-// =================================================
-// =================================================
-// =================================================
-// sort
-
-__device__ void insertionSort(float arr[], int lm[], int me[], int n) 
+__device__ void insertion_sort(float arr[], int lm[], int me[], int n) 
 { 
     int i, lm_key, me_key, j;
     float key;
@@ -92,34 +107,7 @@ __device__ void insertionSort(float arr[], int lm[], int me[], int n)
         lm[j + 1] = lm_key;
         me[j + 1] = me_key; 
     } 
-} 
-
-
-// =================================================
-// =================================================
-// =================================================
-// data assoc
-
-typedef struct 
-{
-    float *matrix;
-    int n_landmarks;
-    int n_measurements;
-} dist_matrix;
-
-typedef struct 
-{
-    int *assignment;
-    bool *assigned_measurements;
-} assignment;
-
-typedef struct 
-{
-    int n_measurements;
-    float *measurement_cov;
-    float measurements[][2];
-} landmark_measurements;
-
+}
 
 __device__ void vecmul(float *A, float *u, float *v)
 {
@@ -215,74 +203,37 @@ __device__ void compute_dist_matrix(float *particle, float measurements[][2], di
                 landmarks_cov[4*i+2] + measurement_cov[2],
                 landmarks_cov[4*i+3] + measurement_cov[3]
             };
-            // float landmark[] = { landmarks[2*i], landmarks[2*i + 1] };
+
             matrix->matrix[i * matrix->n_measurements + j] = pdf(measurement_predicted, measurements[j], cov);
         }
     }
 }
 
-__device__ void assign(int i, dist_matrix *matrix, int *data_assoc_memory, assignment *assignment, float threshold) {
+__device__ void assign(int x, dist_matrix *matrix, int *data_assoc_memory, assignment *assignment, float threshold) {
     int n_landmarks = matrix->n_landmarks;
     int n_measurements = matrix->n_measurements;
 
-    // int usable = 0;
-    // for (int i = 0; i < n_landmarks * n_measurements; i++) {
-    //     if(matrix->matrix[i] > threshold) {
-    //         usable++;
-    //     }
-    // }
-
     int *landmark_idx = data_assoc_memory;
     int *measurement_idx = landmark_idx + (n_landmarks * n_measurements);
-    float *matrix_copy = (float *)(measurement_idx + (n_landmarks * n_measurements));
 
+    int k = 0;
     for(int i = 0; i < n_landmarks; i++) {
         for(int j = 0; j < n_measurements; j++) {
-            landmark_idx[i * n_measurements + j] = i;
-            measurement_idx[i * n_measurements + j] = j;
+            if(matrix->matrix[i * n_measurements + j] > threshold) {
+                landmark_idx[k] = i;
+                measurement_idx[k] = j;
+                matrix->matrix[k] = matrix->matrix[i * n_measurements + j];
+                k++;
+            }
         }
     }
 
-    // if(i == 0) {
-    //     for (int i = 0; i < n_landmarks * n_measurements; i++) {
-    //         printf("%f\n", matrix->matrix[i]);
-    //     }
-    //     printf("=====\n");
-    // }
-    
-    for (int i = 0; i < n_landmarks * n_measurements; i++) {
-        matrix_copy[i] = matrix->matrix[i]; 
-    }
-    // printf("Usable: %d/%d\n", usable, (n_landmarks * n_measurements));
-    if(i == 0) {
-        printf("===BEFORE=== %d %d\n", n_landmarks, n_measurements);
-        for (int i = 0; i < n_landmarks * n_measurements; i++) {
-            printf("%f\n", matrix_copy[i]);
-        }
-        printf("=====\n");
-    }
+    insertion_sort(matrix->matrix, landmark_idx, measurement_idx, k);
 
-    // insertionSort(matrix_copy, landmark_idx, measurement_idx, (n_landmarks * n_measurements));
-    insertionSort(matrix->matrix, landmark_idx, measurement_idx, (n_landmarks * n_measurements));
-
-    if(i == 0) {
-        printf("===AFTER===\n");
-        for (int i = 0; i < n_landmarks * n_measurements; i++) {
-            printf("%f\n", matrix_copy[i]);
-        }
-        printf("=====\n");
-    }
-
-    int assigned_total = 0;
-    float cost = 0;
-
-    for(int i = 0; i < n_landmarks * n_measurements; i++) {
+    int iterations = MIN(n_landmarks, k);
+    for(int i = 0; i < iterations; i++) {
         int a = landmark_idx[i];
         int b = measurement_idx[i];
-
-        if(matrix->matrix[i] < threshold) {
-            break;
-        }
 
         if(assignment->assignment[a] != -1){
             continue;
@@ -290,26 +241,12 @@ __device__ void assign(int i, dist_matrix *matrix, int *data_assoc_memory, assig
 
         assignment->assignment[a] = b;
         assignment->assigned_measurements[b] = true;
-        assigned_total += 1;
-        cost += matrix->matrix[i];
-
-        if(assigned_total == n_landmarks) {
-            break;
-        }
-    }
-
-    if(i == 0) {
-        printf("Cost: %f\n", cost);
-        for(int j = 0; j < n_landmarks; j++) {
-            printf("%d %d\n", j, assignment->assignment[j]);
-        }
     }
 }
 
 __device__ void associate_landmarks_measurements(int i, float *particle, float *m, int *data_assoc_memory, float measurements[][2], int n_landmarks, int n_measurements, assignment *assignment, float *measurement_cov, float threshold) {
     dist_matrix matrix;
     matrix.matrix = m;
-
     matrix.n_landmarks = n_landmarks;
     matrix.n_measurements = n_measurements;
 
@@ -403,14 +340,9 @@ __global__ void update(
 
     int max_landmarks = get_max_landmarks_in_block(particles, block_size, i, n_particles);
 
-    // int *scratchpad = scratchpad_memory + i*size;
-    // int *assignment_memory = scratchpad;
-    // int *data_assoc_memory = assignment_memory + (2 * max_landmarks + n_measurements);
-    // float *matrix = (float *)(data_assoc_memory + (3 * max_landmarks * n_measurements));
-
     int scratchpad_size = (
             max_landmarks + n_measurements +
-            (4 * max_landmarks * n_measurements)) * sizeof(int);
+            (3 * max_landmarks * n_measurements)) * sizeof(int);
     int *scratchpad;
     int *assignment_memory;
     int *data_assoc_memory;
@@ -420,7 +352,7 @@ __global__ void update(
         scratchpad = (int *)malloc(scratchpad_size);
         assignment_memory = scratchpad;
         data_assoc_memory = assignment_memory + (max_landmarks + n_measurements);
-        matrix_memory = (float *)(data_assoc_memory + (3 * max_landmarks * n_measurements));
+        matrix_memory = (float *)(data_assoc_memory + (2 * max_landmarks * n_measurements));
     }
 
 
@@ -436,7 +368,6 @@ __global__ void update(
             add_measurements_as_landmarks(particle, measurements, n_measurements, measurement_cov);
             continue;
         }
-
 
         bool *assigned_measurements = (bool *)(assignment_memory);
         int *assignment_lm = (int *)(assignment_memory + n_measurements);
@@ -458,11 +389,10 @@ __global__ void update(
             n_landmarks, n_measurements, &assignmentx,
             measurement_cov, threshold
         );
-    
+
         update_landmark(particle, measurements, &assignmentx, n_measurements, measurement_cov);
     
         add_unassigned_measurements_as_landmarks(particle, assignmentx.assigned_measurements, measurements, n_measurements, measurement_cov);
-    
     }
 
     if(scratchpad_size > 0) {

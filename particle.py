@@ -219,7 +219,6 @@ class FlatParticle(object):
 
         particles[2::step] += u[0]
         # add noise to heading
-        print("N", N, "step", step)
         particles[2::step] += np.random.normal(loc=0, scale=sigmas[0], size=N)
 
         # move in the (noisy) commanded direction
@@ -234,7 +233,7 @@ class FlatParticle(object):
         return 1.0/np.sum(np.square(weights))
 
     @staticmethod
-    def resample_particles(particles):
+    def resample(particles):
         '''Resamples particles using systematic resample from filterpy
 
         '''
@@ -243,12 +242,7 @@ class FlatParticle(object):
         size = 6 + 6*max_landmarks
 
         weights = FlatParticle.w(particles)
-        print("W:", weights.shape, len(weights), np.sum(np.isnan(weights)))
-        try:
-            indexes = systematic_resample(weights)
-        except IndexError as e:
-            np.savetxt("weights.txt", weights)
-            raise e
+        indexes = systematic_resample(weights)
 
         new_particles = particles.copy()
         for i, index in enumerate(indexes):

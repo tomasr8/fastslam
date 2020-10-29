@@ -24,15 +24,40 @@ from cuda.update import cuda_update
 
 
 cuda_time = []
-cuda_htod = []
-cuda_dtoh = []
+
+class Sensor(object):
+    def __init__(self, landmarks, measurement_variance, max_range, dropout):
+        self.landmarks = landmarks
+        self.measurement_variance = measurement_variance
+        self.max_range = max_range
+        self.dropout = dropout
+
+    def __get_noisy_measurement(self, position, landmark, measurement_variance):
+        vector_to_landmark = np.array(landmark - position, dtype=np.float32)
+
+        a = np.random.normal(0, measurement_variance[0])
+        vector_to_landmark[0] += a
+        b = np.random.normal(0, measurement_variance[1])
+        vector_to_landmark[1] += b
+
+        return vector_to_landmark
+
+    def get_noisy_measurements(self, position):
+        visible_measurements = []
+        for i, landmark in enumerate(landmarks):
+            z = self.__get_noisy_measurement(position, landmark, measurement_variance)
+
+            coin_toss = np.random.uniform(0, 1)
+            if dist(landmark, position) < self.max_range and coin_toss < self.dropout:
+                visible_measurements.append(z)
+
+        return np.array(visible_measurements, dtype=np.float32)   
 
 
-def get_measurement_stochastic(position, landmark, measurement_variance):
+def get_noisy_measurement(position, landmark, measurement_variance):
+    '''Returns a noisy measurement given by the variance
     '''
-        Returns a noisy measurement given by the variance
-    '''
-    vector_to_landmark = np.array(landmark - position, dtype=np.float)
+    vector_to_landmark = np.array(landmark - position, dtype=np.float32)
 
     a = np.random.normal(0, measurement_variance[0])
     vector_to_landmark[0] += a
@@ -42,22 +67,21 @@ def get_measurement_stochastic(position, landmark, measurement_variance):
     return vector_to_landmark
 
 
-def get_noisy_measurements(position, landmarks, measurement_variance):
-    '''
-        Returns a noisy measurement given by the variance
-    '''
-    n_landmarks = landmarks.shape[0]
-    measurements = landmarks - position
+# def get_noisy_measurements(position, landmarks, measurement_variance):
+#     '''
+#         Returns a noisy measurement given by the variance
+#     '''
+#     n_landmarks = landmarks.shape[0]
+#     measurements = landmarks - position
 
-    measurements[:, 0] += np.random.normal(loc=0, scale=measurement_variance[0], size=n_landmarks)
-    measurements[:, 1] += np.random.normal(loc=0, scale=measurement_variance[1], size=n_landmarks)
+#     measurements[:, 0] += np.random.normal(loc=0, scale=measurement_variance[0], size=n_landmarks)
+#     measurements[:, 1] += np.random.normal(loc=0, scale=measurement_variance[1], size=n_landmarks)
 
-    return measurements
+#     return measurements
 
 
-def move_vehicle_stochastic(pos, u, dt, sigmas):
-    '''
-        Stochastically moves the vehicle based on the control input and noise
+def move_vehicle_noisy(pos, u, dt, sigmas):
+    '''Stochastically moves the vehicle based on the control input and noise
     '''
     x, y, theta = pos
 
@@ -72,8 +96,8 @@ def move_vehicle_stochastic(pos, u, dt, sigmas):
 
 def update(
     particles, threads, block_size, z_real, observation_variance, cuda_particles,
-    # cuda_scratchpad, scratchpad_size,
     cuda_measurements, cuda_cov):
+
     measurements = z_real.astype(np.float32)
 
     measurement_cov = np.float32([
@@ -86,57 +110,48 @@ def update(
     start.record()
 
     #Copies the memory from CPU to GPU
-    # start = time.time()
     cuda.memcpy_htod(cuda_particles, particles)
     cuda.memcpy_htod(cuda_measurements, measurements)
     cuda.memcpy_htod(cuda_cov, measurement_cov)
-    # cuda_htod.append(time.time() - start)
 
     threshold = 0.1
 
-    # start = time.time()
     func = cuda_update.get_function("update")
     func(cuda_particles, np.int32(block_size), cuda_measurements,
         np.int32(FlatParticle.len(particles)), np.int32(len(measurements)),
         cuda_cov, np.float32(threshold),
-        #cuda_scratchpad, np.int32(scratchpad_size/threads),
-        block=(threads, 1, 1), grid=(1, 1, 1))
-    # cuda_time.append(time.time() - start)
-
-    # start = time.time()
-    # particles = np.empty_like(particles)
+        block=(threads, 1, 1), grid=(1, 1, 1)
+    )
 
     cuda.memcpy_dtoh(particles, cuda_particles)
 
     end.record()
     end.synchronize()
     cuda_time.append(start.time_till(end))
-    # cuda_dtoh.append(time.time() - start)
 
-    # start = time.time()
     FlatParticle.rescale(particles)
-    # cuda_time.append(time.time() - start)
-
-
-    # print("rescale took:", time.time() - start)
-
     return particles
 
 
 if __name__ == "__main__":
-    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)
-
+    # randomness
     np.random.seed(2)
 
-    # PLOT = False
+    # visualization
     PLOT = True
-    # N = 16384
-    N = 4096
-    LENGTH = 100
+
+    # simulation
+    N = 1024
+    SIM_LENGTH = 100
+    MAX_RANGE = 3
+    DROPOUT = 1.0
+
+    # GPU
+    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)
     THREADS = 512
-    BLOCK_SIZE = int(N/THREADS)
-    
-    MAX_DIST = 3
+    BLOCK_SIZE = N//THREADS
+
+
     mean_landmarks = []
 
     if PLOT:
@@ -144,48 +159,16 @@ if __name__ == "__main__":
         ax.set_xlim([0, 15])
         ax.set_ylim([0, 15])
 
-    # NL = 6
-    # landmarks = np.zeros((NL, 2), dtype=np.float)
-    # landmarks[:, 0] = np.random.uniform(2, 10, NL)
-    # landmarks[:, 1] = np.random.uniform(2, 10, NL)
-
-    landmarks = np.array([
-        [9, 2],
-        [11, 3],
-        [13, 5],
-        [13, 6],
-        [13, 7],
-        [13, 8],
-        [13, 9],
-        [12, 12],
-        [10, 13],
-        [8, 13],
-        [6, 12],
-        [4, 12],
-        [3, 11],
-        [3, 10],
-        [2, 10],
-        [2, 9],
-        [2, 7],
-        [2, 5],
-        [3, 3],
-        [3, 2],
-        [4, 2],
-        [5, 2],
-        [6, 2],
-        [6, 3],
-        [7, 3],
-    ], dtype=np.float)
-    NL = landmarks.shape[0]
+    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)
     
-    real_position = np.array([8, 3, 0], dtype=np.float)
+    real_position = np.array([8, 3, 0], dtype=np.float32)
 
-    MAX_LANDMARKS = 250
+    MAX_LANDMARKS = 100
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
-    # print("nbytes", particles.nbytes)
+    print("nbytes", particles.nbytes)
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (LENGTH, 1))
+        np.tile([0.13, 0.7], (SIM_LENGTH, 1))
     ))
 
     real_position_history = [real_position]
@@ -193,16 +176,13 @@ if __name__ == "__main__":
 
     movement_variance = [0.03, 0.05]
     measurement_variance = [0.1, 0.1]
+    sensor = Sensor(landmarks, measurement_variance, MAX_RANGE, DROPOUT)
 
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 6*MAX_LANDMARKS))
-    MAX_MEASUREMENTS = 50
-    # scratchpad_size = THREADS * (2*MAX_LANDMARKS + MAX_MEASUREMENTS + (4 * MAX_LANDMARKS * MAX_MEASUREMENTS))
-    # cuda_scratchpad = cuda.mem_alloc(scratchpad_size)
     cuda_measurements = cuda.mem_alloc(1024)
     cuda_cov = cuda.mem_alloc(16)
 
     for i in range(u.shape[0]):
-        loop_time = time.time()
         print(i)
 
         if PLOT:
@@ -216,36 +196,25 @@ if __name__ == "__main__":
             plot_particles_grey(ax, particles)
 
 
-        real_position = move_vehicle_stochastic(real_position, u[i], dt=1, sigmas=movement_variance)
+        real_position = move_vehicle_noisy(real_position, u[i], dt=1, sigmas=movement_variance)
         real_position_history.append(real_position)
 
         FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=1)
 
-        
-        # visible_landmarks = [landmark for landmark in landmarks if dist(landmark, real_position[:2]) < MAX_DIST]
-        # visible_landmarks = np.float32(landmarks)
-        # measurements = get_noisy_measurements(real_position[:2], visible_landmarks, measurement_variance)
-
-
-        all_measurements = []
         visible_measurements = []
         for i, landmark in enumerate(landmarks):
-            z = get_measurement_stochastic(real_position[:2], landmark, measurement_variance)
-            all_measurements.append(z)
+            z = get_noisy_measurement(real_position[:2], landmark, measurement_variance)
 
-            if dist(landmark, real_position) < MAX_DIST:
+            if dist(landmark, real_position) < MAX_RANGE:
                 visible_measurements.append(z)
 
-        all_measurements = np.array(all_measurements, dtype=np.float32)
         visible_measurements = np.array(visible_measurements, dtype=np.float32)
-
-        # plot_measurement(ax, real_position[:2], z_real, color="red")
 
         particles = update(
             particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
             cuda_particles,
-            # cuda_scratchpad, scratchpad_size,
-            cuda_measurements, cuda_cov)
+            cuda_measurements, cuda_cov
+        )
 
         # plt.pause(2)
 
@@ -260,24 +229,10 @@ if __name__ == "__main__":
             plot_history(ax, predicted_position_history, color='orange')
             plot_connections(ax, real_position, visible_measurements + real_position[:2])
             plot_particles_weight(ax, particles)
-            plot_measurement(ax, real_position[:2], all_measurements, color="red")
+            plot_measurement(ax, real_position[:2], visible_measurements, color="red")
 
         if FlatParticle.neff(particles) < 0.6*N:
-            print("resample", FlatParticle.neff(particles))
-            particles = FlatParticle.resample_particles(particles)
+            print("resampling..")
+            particles = FlatParticle.resample(particles)
 
-        # print("loop time:", time.time() - loop_time)
-        # free, total = cuda.mem_get_info()
-        # print(f"F: {free} T:{total}, F/T {free/total}")
-        print("Mean particles: ", FlatParticle.mean_particles(particles))
-        mean_landmarks.append(FlatParticle.mean_particles(particles))
-        print("Max currl landmarks", FlatParticle.max_current_landmarks(particles))
-
-
-    # print("Mean HTOD time: ", np.mean(cuda_htod))
-    print("Mean CUDA time: ", np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000)
-    print(cuda_time)
-    print(mean_landmarks)
-    # print("Mean DTOH time: ", np.mean(cuda_dtoh))
-
-    # print(cuda_time)
+    print("Mean CUDA compute time: ", np.mean(cuda_time) / 1000, ", stdev: ", np.std(cuda_time) / 1000)

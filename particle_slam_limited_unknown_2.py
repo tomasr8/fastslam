@@ -22,7 +22,6 @@ from pycuda.driver import limit
 
 from cuda.update import cuda_update
 
-
 cuda_time = []
 
 class Sensor(object):
@@ -54,30 +53,13 @@ class Sensor(object):
         return np.array(visible_measurements, dtype=np.float32)   
 
 
-def get_noisy_measurement(position, landmark, measurement_variance):
-    '''Returns a noisy measurement given by the variance
-    '''
-    vector_to_landmark = np.array(landmark - position, dtype=np.float32)
+def mean_path_deviation(real_path, predicted_path):
+    total = 0
 
-    a = np.random.normal(0, measurement_variance[0])
-    vector_to_landmark[0] += a
-    b = np.random.normal(0, measurement_variance[1])
-    vector_to_landmark[1] += b
+    for real, predicted in zip(real_path, predicted_path):
+        total += dist(real[:2], predicted[:2])
 
-    return vector_to_landmark
-
-
-# def get_noisy_measurements(position, landmarks, measurement_variance):
-#     '''
-#         Returns a noisy measurement given by the variance
-#     '''
-#     n_landmarks = landmarks.shape[0]
-#     measurements = landmarks - position
-
-#     measurements[:, 0] += np.random.normal(loc=0, scale=measurement_variance[0], size=n_landmarks)
-#     measurements[:, 1] += np.random.normal(loc=0, scale=measurement_variance[1], size=n_landmarks)
-
-#     return measurements
+    return total/len(real_path)
 
 
 def move_vehicle_noisy(pos, u, dt, sigmas):
@@ -96,7 +78,7 @@ def move_vehicle_noisy(pos, u, dt, sigmas):
 
 def update(
     particles, threads, block_size, z_real, observation_variance, cuda_particles,
-    cuda_measurements, cuda_cov):
+    cuda_measurements, cuda_cov, threshold):
 
     measurements = z_real.astype(np.float32)
 
@@ -109,12 +91,9 @@ def update(
     end=cuda.Event()
     start.record()
 
-    #Copies the memory from CPU to GPU
     cuda.memcpy_htod(cuda_particles, particles)
     cuda.memcpy_htod(cuda_measurements, measurements)
     cuda.memcpy_htod(cuda_cov, measurement_cov)
-
-    threshold = 0.1
 
     func = cuda_update.get_function("update")
     func(cuda_particles, np.int32(block_size), cuda_measurements,
@@ -138,34 +117,34 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = True
+    PLOT = False
 
     # simulation
-    N = 1024
-    SIM_LENGTH = 100
-    MAX_RANGE = 3
-    DROPOUT = 1.0
+    N = 4096 # number of particles
+    SIM_LENGTH = 100 # number of simulation steps
+    MAX_RANGE = 5 # max range of sensor
+    DROPOUT = 1.0 # probability landmark in range will be seen
+    MAX_LANDMARKS = 100 # upper bound on the total number of landmarks in the environment
+    landmarks = np.loadtxt("landmarks.txt").astype(np.float32) # landmark positions
+    real_position = np.array([8, 3, 0], dtype=np.float32) # starting position of the car
+    movement_variance = [0.1, 0.1]
+    measurement_variance = [0.08, 0.1]
+    THRESHOLD = 0.2
 
     # GPU
-    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)
-    THREADS = 512
-    BLOCK_SIZE = N//THREADS
+    context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024) # heap size available to the GPU threads
+    THREADS = 512 # number of GPU threads
+    BLOCK_SIZE = N//THREADS # number of particles per thread
 
 
-    mean_landmarks = []
+    particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
+    print("Particles memory:", particles.nbytes / 1024, "KB")
+
 
     if PLOT:
         fig, ax = plt.subplots()
-        ax.set_xlim([0, 15])
-        ax.set_ylim([0, 15])
-
-    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)
-    
-    real_position = np.array([8, 3, 0], dtype=np.float32)
-
-    MAX_LANDMARKS = 100
-    particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, real_position, sigma=0.2)
-    print("nbytes", particles.nbytes)
+        ax.set_xlim([0, 20])
+        ax.set_ylim([0, 20])
 
     u = np.vstack((
         np.tile([0.13, 0.7], (SIM_LENGTH, 1))
@@ -174,8 +153,6 @@ if __name__ == "__main__":
     real_position_history = [real_position]
     predicted_position_history = [FlatParticle.get_mean_position(particles)]
 
-    movement_variance = [0.03, 0.05]
-    measurement_variance = [0.1, 0.1]
     sensor = Sensor(landmarks, measurement_variance, MAX_RANGE, DROPOUT)
 
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 6*MAX_LANDMARKS))
@@ -188,8 +165,8 @@ if __name__ == "__main__":
         if PLOT:
             plt.pause(0.05)
             ax.clear()
-            ax.set_xlim([0, 15])
-            ax.set_ylim([0, 15])
+            ax.set_xlim([0, 20])
+            ax.set_ylim([0, 20])
             plot_landmarks(ax, landmarks)
             plot_history(ax, real_position_history, color='green')
             plot_history(ax, predicted_position_history, color='orange')
@@ -201,19 +178,11 @@ if __name__ == "__main__":
 
         FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=1)
 
-        visible_measurements = []
-        for i, landmark in enumerate(landmarks):
-            z = get_noisy_measurement(real_position[:2], landmark, measurement_variance)
-
-            if dist(landmark, real_position) < MAX_RANGE:
-                visible_measurements.append(z)
-
-        visible_measurements = np.array(visible_measurements, dtype=np.float32)
+        visible_measurements = sensor.get_noisy_measurements(real_position[:2])
 
         particles = update(
             particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
-            cuda_particles,
-            cuda_measurements, cuda_cov
+            cuda_particles, cuda_measurements, cuda_cov, THRESHOLD
         )
 
         # plt.pause(2)
@@ -222,14 +191,16 @@ if __name__ == "__main__":
 
         if PLOT:
             ax.clear()
-            ax.set_xlim([0, 15])
-            ax.set_ylim([0, 15])
+            ax.set_xlim([0, 20])
+            ax.set_ylim([0, 20])
             plot_landmarks(ax, landmarks)
             plot_history(ax, real_position_history, color='green')
             plot_history(ax, predicted_position_history, color='orange')
-            plot_connections(ax, real_position, visible_measurements + real_position[:2])
+            if(visible_measurements.size != 0):
+                plot_connections(ax, real_position, visible_measurements + real_position[:2])
             plot_particles_weight(ax, particles)
-            plot_measurement(ax, real_position[:2], visible_measurements, color="red")
+            if(visible_measurements.size != 0):
+                plot_measurement(ax, real_position[:2], visible_measurements, color="red")
 
         if FlatParticle.neff(particles) < 0.6*N:
             print("resampling..")

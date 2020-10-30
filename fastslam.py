@@ -136,6 +136,7 @@ if __name__ == "__main__":
     MAX_RANGE = 5  # max range of sensor
     DROPOUT = 1.0  # probability landmark in range will be seen
     MAX_LANDMARKS = 100  # upper bound on the total number of landmarks in the environment
+    MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
     landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
     movement_variance = [0.07, 0.07]
@@ -144,7 +145,7 @@ if __name__ == "__main__":
 
     # GPU
     context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)  # heap size available to the GPU threads
-    THREADS = 512  # number of GPU threads
+    THREADS = 256  # number of GPU threads
     assert N >= THREADS
     BLOCK_SIZE = N//THREADS  # number of particles per thread
 
@@ -167,8 +168,8 @@ if __name__ == "__main__":
     vehicle = Vehicle(start_position, movement_variance, dt=1)
 
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 6*MAX_LANDMARKS))
-    cuda_measurements = cuda.mem_alloc(1024)
-    cuda_cov = cuda.mem_alloc(16)
+    cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
+    cuda_cov = cuda.mem_alloc(4 * 4)
 
     # plt.pause(5)
 

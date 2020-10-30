@@ -361,9 +361,7 @@ __global__ void update(
 
     int max_landmarks = get_max_landmarks_in_block(particles, block_size, thread_id, n_particles);
 
-    int scratchpad_size = (
-            max_landmarks + n_measurements +
-            (3 * max_landmarks * n_measurements)) * sizeof(int);
+    int scratchpad_size = (max_landmarks + n_measurements + (3 * max_landmarks * n_measurements)) * sizeof(int);
     int *scratchpad;
     int *assignment_memory;
     int *data_assoc_memory;

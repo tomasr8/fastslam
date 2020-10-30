@@ -5,7 +5,6 @@ import numpy as np
 import scipy
 import scipy.stats
 import matplotlib.pyplot as plt
-from filterpy.monte_carlo import systematic_resample
 
 from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
 from particle import Particle, FlatParticle
@@ -117,7 +116,7 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = False
+    PLOT = True
 
     # simulation
     N = 4096 # number of particles
@@ -128,7 +127,7 @@ if __name__ == "__main__":
     landmarks = np.loadtxt("landmarks.txt").astype(np.float32) # landmark positions
     real_position = np.array([8, 3, 0], dtype=np.float32) # starting position of the car
     movement_variance = [0.1, 0.1]
-    measurement_variance = [0.08, 0.1]
+    measurement_variance = [0.1, 0.1]
     THRESHOLD = 0.2
 
     # GPU
@@ -143,8 +142,8 @@ if __name__ == "__main__":
 
     if PLOT:
         fig, ax = plt.subplots()
-        ax.set_xlim([0, 20])
-        ax.set_ylim([0, 20])
+        ax.set_xlim([0, 25])
+        ax.set_ylim([0, 25])
 
     u = np.vstack((
         np.tile([0.13, 0.7], (SIM_LENGTH, 1))
@@ -159,14 +158,16 @@ if __name__ == "__main__":
     cuda_measurements = cuda.mem_alloc(1024)
     cuda_cov = cuda.mem_alloc(16)
 
+    # plt.pause(5)
+
     for i in range(u.shape[0]):
         print(i)
 
         if PLOT:
             plt.pause(0.05)
             ax.clear()
-            ax.set_xlim([0, 20])
-            ax.set_ylim([0, 20])
+            ax.set_xlim([0, 25])
+            ax.set_ylim([0, 25])
             plot_landmarks(ax, landmarks)
             plot_history(ax, real_position_history, color='green')
             plot_history(ax, predicted_position_history, color='orange')
@@ -191,8 +192,8 @@ if __name__ == "__main__":
 
         if PLOT:
             ax.clear()
-            ax.set_xlim([0, 20])
-            ax.set_ylim([0, 20])
+            ax.set_xlim([0, 25])
+            ax.set_ylim([0, 25])
             plot_landmarks(ax, landmarks)
             plot_history(ax, real_position_history, color='green')
             plot_history(ax, predicted_position_history, color='orange')

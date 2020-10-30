@@ -257,7 +257,7 @@ if __name__ == "__main__":
 
     real_position = np.array([8, 3, 0], dtype=np.float)
 
-    N = 1024
+    N = 4096
     particles = Particle.get_initial_particles(N, real_position, sigma=0.2)
 
     u = np.vstack((

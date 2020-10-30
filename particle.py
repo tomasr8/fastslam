@@ -200,9 +200,12 @@ class FlatParticle(object):
         step = 6 + 6*max_landmarks
         particles = np.zeros(n_particles * step, dtype=np.float32)
 
-        particles[0::step] = starting_position[0] + np.random.normal(loc=0, scale=sigma, size=n_particles)
-        particles[1::step] = starting_position[1] + np.random.normal(loc=0, scale=sigma, size=n_particles)
-        particles[2::step] = starting_position[2] + (np.random.normal(loc=0, scale=sigma, size=n_particles) % (2*math.pi))
+        # particles[0::step] = starting_position[0] + np.random.normal(loc=0, scale=sigma, size=n_particles)
+        # particles[1::step] = starting_position[1] + np.random.normal(loc=0, scale=sigma, size=n_particles)
+        # particles[2::step] = (starting_position[2] + np.random.normal(loc=0, scale=sigma, size=n_particles)) % (2*math.pi)
+        particles[0::step] = starting_position[0]
+        particles[1::step] = starting_position[1]
+        particles[2::step] = starting_position[2]
         particles[3::step] = 1/n_particles
         particles[4::step] = float(max_landmarks)
 
@@ -220,6 +223,7 @@ class FlatParticle(object):
         particles[2::step] += u[0]
         # add noise to heading
         particles[2::step] += np.random.normal(loc=0, scale=sigmas[0], size=N)
+        particles[2::step] %= (2*math.pi)
 
         # move in the (noisy) commanded direction
         theta = particles[2::step]

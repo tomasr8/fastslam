@@ -180,6 +180,31 @@ class FlatParticle(object):
         return particles[offset:offset+size]
 
     @staticmethod
+    def get_landmarks(particles, i):
+        particle = FlatParticle.get_particle(particles, i)
+        n_landmarks = int(particle[5])
+
+        return particle[6:6+2*n_landmarks].reshape((n_landmarks, 2))
+
+    @staticmethod
+    def get_covariances(particles, i):
+        particle = FlatParticle.get_particle(particles, i)
+        max_landmarks = int(particle[4])
+        n_landmarks = int(particle[5])
+
+
+        cov_array = particle[6+2*max_landmarks:]
+        covariances = np.zeros((n_landmarks, 2, 2), dtype=np.float32)
+
+        for i in range(n_landmarks):
+            covariances[i, 0, 0] = cov_array[4*i]
+            covariances[i, 0, 1] = cov_array[4*i + 1]
+            covariances[i, 1, 0] = cov_array[4*i + 2]
+            covariances[i, 1, 1] = cov_array[4*i + 3]
+
+        return covariances
+
+    @staticmethod
     def get_mean_position(particles) -> list:
         max_landmarks = int(particles[4])
         step = 6 + 6*max_landmarks

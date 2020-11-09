@@ -6,7 +6,10 @@ import scipy
 import scipy.stats
 import matplotlib.pyplot as plt
 
-from plotting import plot_connections, plot_history, plot_landmarks, plot_measurement, plot_particles_weight, plot_particles_grey
+from plotting import (
+    plot_connections, plot_history, plot_landmarks, plot_measurement,
+    plot_particles_weight, plot_particles_grey, plot_confidence_ellipse
+)
 from particle import Particle, FlatParticle
 from utils import dist
 
@@ -24,11 +27,11 @@ cuda_time = []
 
 
 class Vehicle(object):
-    def __init__(self, position, movement_variance, dt=1):
+    def __init__(self, position, movement_variance, dt):
         self.position = position
         self.movement_variance = movement_variance
         self.dt = dt
-        self.random = np.random.RandomState(seed=2)
+        self.random = np.random.RandomState(seed=4)
 
     def move_noisy(self, u):
         '''Stochastically moves the vehicle based on the control input and noise
@@ -131,11 +134,11 @@ if __name__ == "__main__":
     PLOT = True
 
     # simulation
-    N = 2048  # number of particles
-    SIM_LENGTH = 100  # number of simulation steps
+    N = 4096  # number of particles
+    SIM_LENGTH = 200  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     DROPOUT = 1.0  # probability landmark in range will be seen
-    MAX_LANDMARKS = 100  # upper bound on the total number of landmarks in the environment
+    MAX_LANDMARKS = 150  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
     landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
@@ -153,9 +156,11 @@ if __name__ == "__main__":
     print("Particles memory:", particles.nbytes / 1024, "KB")
 
     if PLOT:
-        fig, ax = plt.subplots()
-        ax.set_xlim([0, 25])
-        ax.set_ylim([0, 25])
+        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+        ax[0].set_xlim([-5, 20])
+        ax[0].set_ylim([-5, 20])
+        ax[1].set_xlim([-5, 20])
+        ax[1].set_ylim([-5, 20])
 
     u = np.vstack((
         np.tile([0.13, 0.7], (SIM_LENGTH, 1))
@@ -178,13 +183,13 @@ if __name__ == "__main__":
 
         if PLOT:
             plt.pause(0.05)
-            ax.clear()
-            ax.set_xlim([0, 25])
-            ax.set_ylim([0, 25])
-            plot_landmarks(ax, landmarks)
-            plot_history(ax, real_position_history, color='green')
-            plot_history(ax, predicted_position_history, color='orange')
-            plot_particles_grey(ax, particles)
+            ax[0].clear()
+            ax[0].set_xlim([-5, 20])
+            ax[0].set_ylim([-5, 20])
+            plot_landmarks(ax[0], landmarks)
+            plot_history(ax[0], real_position_history, color='green')
+            plot_history(ax[0], predicted_position_history, color='orange')
+            plot_particles_grey(ax[0], particles)
 
         vehicle.move_noisy(u[i])
         real_position_history.append(vehicle.position)
@@ -198,22 +203,32 @@ if __name__ == "__main__":
             cuda_particles, cuda_measurements, cuda_cov, THRESHOLD
         )
 
-        # plt.pause(2)
-
         predicted_position_history.append(FlatParticle.get_mean_position(particles))
 
         if PLOT:
-            ax.clear()
-            ax.set_xlim([0, 25])
-            ax.set_ylim([0, 25])
-            plot_landmarks(ax, landmarks)
-            plot_history(ax, real_position_history, color='green')
-            plot_history(ax, predicted_position_history, color='orange')
+            ax[0].clear()
+            ax[0].set_xlim([-5, 20])
+            ax[0].set_ylim([-5, 20])
+            plot_landmarks(ax[0], landmarks)
+            plot_history(ax[0], real_position_history, color='green')
+            plot_history(ax[0], predicted_position_history, color='orange')
             if(visible_measurements.size != 0):
-                plot_connections(ax, vehicle.position, visible_measurements + vehicle.position[:2])
-            plot_particles_weight(ax, particles)
+                plot_connections(ax[0], vehicle.position, visible_measurements + vehicle.position[:2])
+            plot_particles_weight(ax[0], particles)
             if(visible_measurements.size != 0):
-                plot_measurement(ax, vehicle.position[:2], visible_measurements, color="red")
+                plot_measurement(ax[0], vehicle.position[:2], visible_measurements, color="red")
+
+            ax[1].clear()
+            ax[1].set_xlim([-5, 20])
+            ax[1].set_ylim([-5, 20])
+            best = np.argmax(FlatParticle.w(particles))
+            plot_landmarks(ax[1], landmarks, color="green")
+            plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
+            covariances = FlatParticle.get_covariances(particles, best)
+
+            for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
+                plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
+
 
         if FlatParticle.neff(particles) < 0.6*N:
             print("resampling..")

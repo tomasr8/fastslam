@@ -25,9 +25,42 @@ typedef struct
     float *measurement_cov;
 } landmark_measurements;
 
+// __device__ float norm_squared(float *v) {
+//     return v[0]*v[0] + v[1]*v[1];
+// }
+
+__device__ float vecnorm(float *v) {
+    return sqrt(v[0]*v[0] + v[1]*v[1]);
+}
+
+__device__ bool in_sensor_range(float *position, float *landmark, float range, float fov) {
+    float x = position[0];
+    float y = position[1];
+    float theta = position[2];
+    float lx = landmark[0];
+    float ly = landmark[1];
+
+    float va[] = {lx - x, ly - y};
+    float vb[] = {range * cos(theta), range * sin(theta)};
+
+    if(vecnorm(va) > range) {
+        return false;
+    }
+
+    float angle = acos(
+        (va[0]*vb[0] + va[1]*vb[1])/(vecnorm(va)*vecnorm(vb))
+    );
+
+    if(angle <= (fov/2)) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 __device__ float* get_particle(float *particles, int i) {
     int max_landmarks = (int)particles[4];
-    return (particles + (6 + 6*max_landmarks)*i);
+    return (particles + (6 + 7*max_landmarks)*i);
 }
 
 __device__ float* get_mean(float *particle, int i)
@@ -39,6 +72,24 @@ __device__ float* get_cov(float *particle, int i)
 {
     int max_landmarks = (int)particle[4];
     return (particle + 6 + 2*max_landmarks + 4*i);
+}
+
+__device__ float* get_landmark_prob(float *particle, int i)
+{
+    int max_landmarks = (int)particle[4];
+    return (particle + 6 + 6*max_landmarks + i);
+}
+
+__device__ void increment_landmark_prob(float *particle, int i)
+{
+    float *prob = get_landmark_prob(particle, i);
+    prob[0] += 1.0;
+}
+
+__device__ void decrement_landmark_prob(float *particle, int i)
+{
+    float *prob = get_landmark_prob(particle, i);
+    prob[0] -= 1.0;
 }
 
 __device__ int get_n_landmarks(float *particle)
@@ -53,6 +104,7 @@ __device__ void add_landmark(float *particle, float mean[2], float *cov)
 
     float *new_mean = get_mean(particle, n_landmarks);
     float *new_cov = get_cov(particle, n_landmarks);
+    float *new_prob = get_landmark_prob(particle, n_landmarks);
 
     new_mean[0] = mean[0];
     new_mean[1] = mean[1];
@@ -61,6 +113,40 @@ __device__ void add_landmark(float *particle, float mean[2], float *cov)
     new_cov[1] = cov[1];
     new_cov[2] = cov[2];
     new_cov[3] = cov[3];
+
+    new_prob[0] = 1.0;
+}
+
+__device__ void remove_landmark(float *particle, int i)
+{
+    int n_landmarks = (int)particle[5];
+
+    for(int j = i + 1; j < n_landmarks; j++) {
+        float *prob_a = get_landmark_prob(particle, j - 1);
+        float *prob_b = prob_a + 1;
+
+        prob_a[0] = prob_b[0];
+    }
+    
+    for(int j = i + 1; j < n_landmarks; j++) {
+        float *cov_a = get_cov(particle, j - 1);
+        float *cov_b = cov_a + 4;
+
+        cov_a[0] = cov_b[0];
+        cov_a[1] = cov_b[1];
+        cov_a[2] = cov_b[2];
+        cov_a[3] = cov_b[3];
+    }
+
+    for(int j = i + 1; j < n_landmarks; j++) {
+        float *mean_a = get_mean(particle, j - 1);
+        float *mean_b = mean_a + 2;
+
+        mean_a[0] = mean_b[0];
+        mean_a[1] = mean_b[1];
+    }
+
+    particle[5] = (float)(n_landmarks - 1);
 }
 
 __device__ void add_unassigned_measurements_as_landmarks(float *particle, bool *assigned_measurements, landmark_measurements *measurements)
@@ -271,7 +357,7 @@ __device__ void associate_landmarks_measurements(float *particle, float *m, int 
     assign(&matrix, data_assoc_memory, assignment, threshold);
 }
 
-__device__ void update_landmark(float *particle, landmark_measurements *measurements, assignment *assignment)
+__device__ void update_landmark(float *particle, landmark_measurements *measurements, assignment *assignment, float range, float fov)
 {
     float *measurement_cov = measurements->measurement_cov;
 
@@ -279,10 +365,16 @@ __device__ void update_landmark(float *particle, landmark_measurements *measurem
     float y = particle[1];
     int n_landmarks = get_n_landmarks(particle);
 
-    for(int i = 0; i < n_landmarks; i++) {
+    for(int i = n_landmarks - 1; i >= 0; i--) {
         int j = assignment->assignment[i];
 
         if(j == -1) {
+            if(in_sensor_range(particle, get_mean(particle, i), range, fov)) {
+                decrement_landmark_prob(particle, i);
+                if(get_landmark_prob(particle, i) < 0) {
+                    remove_landmark(particle, i);
+                }
+            }
             continue;
         }
 
@@ -323,7 +415,60 @@ __device__ void update_landmark(float *particle, landmark_measurements *measurem
         cov[3] = new_cov[3];
 
         particle[3] *= pdf(measurements->measurements[j], measurement_predicted, Q);
+        increment_landmark_prob(particle, i);
     }
+
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     int j = assignment->assignment[i];
+
+    //     if(j == -1) {
+    //         // in sensor range
+    //         // decrement_landmark_prob(particle, i);
+    //         // if(get_landmark_prob(particle, i) < 0) {
+    //         //     to_delete[i] = 1;
+    //         // }
+    //         continue;
+    //     }
+
+    //     float *mean = get_mean(particle, i);
+    //     float mean_x = mean[0];
+    //     float mean_y = mean[1];
+
+    //     float measurement_predicted[2] = { mean_x - x, mean_y - y };
+    //     float residual[2] = {
+    //         measurements->measurements[j][0] - measurement_predicted[0],
+    //         measurements->measurements[j][1] - measurement_predicted[1]
+    //     };
+
+    //     float *cov = get_cov(particle, i);
+
+    //     float Q[4] = {
+    //         cov[0] + measurement_cov[0],
+    //         cov[1] + measurement_cov[1],
+    //         cov[2] + measurement_cov[2],
+    //         cov[3] + measurement_cov[3]
+    //     };
+
+    //     float K[4] = { 0, 0, 0, 0 };
+    //     float Q_inv[4] = { 0, 0, 0, 0 };
+    //     pinv(Q, Q_inv);
+    //     matmul(cov, Q_inv, K);
+
+    //     float K_residual[] = { 0, 0 };
+    //     vecmul(K, residual, K_residual);
+    //     mean[0] += K_residual[0];
+    //     mean[1] += K_residual[1];
+
+    //     float new_cov[] = { 1 - K[0], K[1], K[2], 1 - K[3] };
+    //     matmul(new_cov, cov, new_cov);
+    //     cov[0] = new_cov[0];
+    //     cov[1] = new_cov[1];
+    //     cov[2] = new_cov[2];
+    //     cov[3] = new_cov[3];
+
+    //     particle[3] *= pdf(measurements->measurements[j], measurement_predicted, Q);
+    //     increment_landmark_prob(particle, i);
+    // }
 }
 
 __device__ int get_max_landmarks_in_block(float *particles, int block_size, int thread_id, int n_particles) {
@@ -348,7 +493,7 @@ __device__ int get_max_landmarks_in_block(float *particles, int block_size, int 
 
 __global__ void update(
     float *particles, int block_size, float measurements_array[][2], int n_particles, int n_measurements,
-    float *measurement_cov, float threshold/*, int *scratchpad_memory, int size*/)
+    float *measurement_cov, float threshold, float range, float fov)
 {
     // int i = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -414,7 +559,7 @@ __global__ void update(
             threshold
         );
 
-        update_landmark(particle, &measurements, &assignmentx);
+        update_landmark(particle, &measurements, &assignmentx, range, fov);
     
         add_unassigned_measurements_as_landmarks(particle, assignmentx.assigned_measurements, &measurements);
     }

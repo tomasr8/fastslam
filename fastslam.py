@@ -22,6 +22,7 @@ from pycuda.autoinit import context
 from pycuda.driver import limit
 
 from cuda.update import cuda_update
+from sensor import Sensor
 
 cuda_time = []
 
@@ -31,7 +32,7 @@ class Vehicle(object):
         self.position = position
         self.movement_variance = movement_variance
         self.dt = dt
-        self.random = np.random.RandomState(seed=4)
+        self.random = np.random.RandomState(seed=6)
 
     def move_noisy(self, u):
         '''Stochastically moves the vehicle based on the control input and noise
@@ -48,33 +49,33 @@ class Vehicle(object):
         self.position = np.array([x, y, theta]).astype(np.float32)
 
 
-class Sensor(object):
-    def __init__(self, landmarks, measurement_variance, max_range, dropout):
-        self.landmarks = landmarks
-        self.measurement_variance = measurement_variance
-        self.max_range = max_range
-        self.dropout = dropout
+# class Sensor(object):
+#     def __init__(self, landmarks, measurement_variance, max_range, dropout):
+#         self.landmarks = landmarks
+#         self.measurement_variance = measurement_variance
+#         self.max_range = max_range
+#         self.dropout = dropout
 
-    def __get_noisy_measurement(self, position, landmark, measurement_variance):
-        vector_to_landmark = np.array(landmark - position, dtype=np.float32)
+#     def __get_noisy_measurement(self, position, landmark, measurement_variance):
+#         vector_to_landmark = np.array(landmark - position, dtype=np.float32)
 
-        a = np.random.normal(0, measurement_variance[0])
-        vector_to_landmark[0] += a
-        b = np.random.normal(0, measurement_variance[1])
-        vector_to_landmark[1] += b
+#         a = np.random.normal(0, measurement_variance[0])
+#         vector_to_landmark[0] += a
+#         b = np.random.normal(0, measurement_variance[1])
+#         vector_to_landmark[1] += b
 
-        return vector_to_landmark
+#         return vector_to_landmark
 
-    def get_noisy_measurements(self, position):
-        visible_measurements = []
-        for i, landmark in enumerate(landmarks):
-            z = self.__get_noisy_measurement(position, landmark, measurement_variance)
+#     def get_noisy_measurements(self, position):
+#         visible_measurements = []
+#         for i, landmark in enumerate(landmarks):
+#             z = self.__get_noisy_measurement(position, landmark, measurement_variance)
 
-            coin_toss = np.random.uniform(0, 1)
-            if dist(landmark, position) < self.max_range and coin_toss < self.dropout:
-                visible_measurements.append(z)
+#             coin_toss = np.random.uniform(0, 1)
+#             if dist(landmark, position) < self.max_range and coin_toss < self.dropout:
+#                 visible_measurements.append(z)
 
-        return np.array(visible_measurements, dtype=np.float32)
+#         return np.array(visible_measurements, dtype=np.float32)
 
 
 def mean_path_deviation(real_path, predicted_path):
@@ -92,7 +93,7 @@ def mean_path_deviation(real_path, predicted_path):
 
 def update(
         particles, threads, block_size, z_real, observation_variance, cuda_particles,
-        cuda_measurements, cuda_cov, threshold):
+        cuda_measurements, cuda_cov, threshold, max_range, max_fov):
 
     measurements = z_real.astype(np.float32)
 
@@ -112,7 +113,7 @@ def update(
     func = cuda_update.get_function("update")
     func(cuda_particles, np.int32(block_size), cuda_measurements,
          np.int32(FlatParticle.len(particles)), np.int32(len(measurements)),
-         cuda_cov, np.float32(threshold),
+         cuda_cov, np.float32(threshold), np.float32(max_range), np.float32(max_fov),
          block=(threads, 1, 1), grid=(1, 1, 1)
          )
 
@@ -136,7 +137,8 @@ if __name__ == "__main__":
     # simulation
     N = 4096  # number of particles
     SIM_LENGTH = 200  # number of simulation steps
-    MAX_RANGE = 5  # max range of sensor
+    MAX_RANGE = 4  # max range of sensor
+    MAX_FOV = (4/3)*np.pi
     DROPOUT = 1.0  # probability landmark in range will be seen
     MAX_LANDMARKS = 150  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
@@ -168,11 +170,12 @@ if __name__ == "__main__":
 
     real_position_history = [start_position]
     predicted_position_history = [FlatParticle.get_mean_position(particles)]
+    weights_history = [FlatParticle.neff(particles)]
 
-    sensor = Sensor(landmarks, measurement_variance, MAX_RANGE, DROPOUT)
     vehicle = Vehicle(start_position, movement_variance, dt=1)
+    sensor = Sensor(vehicle, landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, 0, 0)
 
-    cuda_particles = cuda.mem_alloc(4 * N * (6 + 6*MAX_LANDMARKS))
+    cuda_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
     cuda_cov = cuda.mem_alloc(4 * 4)
 
@@ -196,11 +199,13 @@ if __name__ == "__main__":
 
         FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=1)
 
-        visible_measurements = sensor.get_noisy_measurements(vehicle.position[:2])
+        measurements = sensor.get_noisy_measurements()
+        visible_measurements = np.vstack((measurements["observed"], measurements["phantomSeen"]))
+        # visible_measurements = sensor.get_noisy_measurements(vehicle.position[:2])
 
         particles = update(
             particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
-            cuda_particles, cuda_measurements, cuda_cov, THRESHOLD
+            cuda_particles, cuda_measurements, cuda_cov, THRESHOLD, MAX_RANGE, MAX_FOV
         )
 
         predicted_position_history.append(FlatParticle.get_mean_position(particles))
@@ -229,10 +234,33 @@ if __name__ == "__main__":
             for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
+            # ax[0].plot([vehicle.position[0], vehicle.position[0] + np.cos(vehicle.position[2] + 0.8) * MAX_RANGE],
+            #     [vehicle.position[1], vehicle.position[1] + np.sin(vehicle.position[2] + 0.8) * MAX_RANGE], color='gray')
+
+            # ax[0].plot([vehicle.position[0], vehicle.position[0] + np.cos(vehicle.position[2] - 0.8) * MAX_RANGE],
+            #     [vehicle.position[1], vehicle.position[1] + np.sin(vehicle.position[2] - 0.8) * MAX_RANGE], color='gray')
+
+            thetas = np.linspace(vehicle.position[2] - MAX_FOV/2, vehicle.position[2] + MAX_FOV/2)
+            xs = MAX_RANGE * np.cos(thetas)
+            ys = MAX_RANGE * np.sin(thetas)
+
+            xs += vehicle.position[0]
+            ys += vehicle.position[1]
+
+            # ax[0].plot(xs, ys, color='gray')
+            ax[0].fill(np.append(xs, vehicle.position[0]), np.append(ys, vehicle.position[1]), 'gray', alpha=0.3)
+
+
+            # ax[2].clear()
+            # ax[2].plot(np.arange(len(weights_history)), weights_history)
+
 
         if FlatParticle.neff(particles) < 0.6*N:
             print("resampling..")
             particles = FlatParticle.resample(particles)
+
+        weights_history.append(FlatParticle.neff(particles))
+
 
     print("Mean CUDA compute time: ", np.mean(cuda_time) / 1000, ", stdev: ", np.std(cuda_time) / 1000)
     deviation = mean_path_deviation(real_position_history, predicted_position_history)

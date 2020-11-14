@@ -139,43 +139,43 @@ class FlatParticle(object):
     @staticmethod
     def x(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         return particles[0::step]
 
     @staticmethod
     def y(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         return particles[1::step]
 
     @staticmethod
     def w(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         return particles[3::step]
 
     @staticmethod
     def len(particles):
         max_landmarks = int(particles[4])
         length = particles.shape[0]
-        return int(length/(6 + 6*max_landmarks))
+        return int(length/(6 + 7*max_landmarks))
 
     @staticmethod
     def mean_particles(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         return np.mean(particles[5::step])
 
     @staticmethod
     def max_current_landmarks(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         return np.max(particles[5::step])
 
     @staticmethod
     def get_particle(particles, i):
         max_landmarks = int(particles[4])
-        size = 6 + 6*max_landmarks
+        size = 6 + 7*max_landmarks
         offset = size * i
         return particles[offset:offset+size]
 
@@ -193,7 +193,7 @@ class FlatParticle(object):
         n_landmarks = int(particle[5])
 
 
-        cov_array = particle[6+2*max_landmarks:]
+        cov_array = particle[6+2*max_landmarks:6+6*max_landmarks]
         covariances = np.zeros((n_landmarks, 2, 2), dtype=np.float32)
 
         for i in range(n_landmarks):
@@ -207,7 +207,7 @@ class FlatParticle(object):
     @staticmethod
     def get_mean_position(particles) -> list:
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
 
         xs = particles[0::step]
         ys = particles[1::step]
@@ -222,7 +222,7 @@ class FlatParticle(object):
 
     @staticmethod
     def get_initial_particles(n_particles: int, max_landmarks: int, starting_position: np.ndarray, sigma: float):
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
         particles = np.zeros(n_particles * step, dtype=np.float32)
 
         # particles[0::step] = starting_position[0] + np.random.normal(loc=0, scale=sigma, size=n_particles)
@@ -243,7 +243,7 @@ class FlatParticle(object):
         '''
         N = FlatParticle.len(particles)
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
 
         particles[2::step] += u[0]
         # add noise to heading
@@ -268,7 +268,7 @@ class FlatParticle(object):
         '''
         N = FlatParticle.len(particles)
         max_landmarks = int(particles[4])
-        size = 6 + 6*max_landmarks
+        size = 6 + 7*max_landmarks
 
         weights = FlatParticle.w(particles)
         indexes = systematic_resample(weights)
@@ -287,7 +287,7 @@ class FlatParticle(object):
     @staticmethod
     def rescale(particles):
         max_landmarks = int(particles[4])
-        step = 6 + 6*max_landmarks
+        step = 6 + 7*max_landmarks
 
         s = np.sum(particles[3::step]) + 1.e-30
         particles[3::step] /= s

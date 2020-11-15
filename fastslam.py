@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 
 from plotting import (
     plot_connections, plot_history, plot_landmarks, plot_measurement,
-    plot_particles_weight, plot_particles_grey, plot_confidence_ellipse
+    plot_particles_weight, plot_particles_grey, plot_confidence_ellipse,
+    plot_sensor_fov
 )
 from particle import Particle, FlatParticle
 from utils import dist
@@ -135,11 +136,12 @@ if __name__ == "__main__":
     PLOT = True
 
     # simulation
-    N = 4096  # number of particles
-    SIM_LENGTH = 200  # number of simulation steps
+    N = 256  # number of particles
+    SIM_LENGTH = 50  # number of simulation steps
     MAX_RANGE = 4  # max range of sensor
-    MAX_FOV = (4/3)*np.pi
-    DROPOUT = 1.0  # probability landmark in range will be seen
+    MAX_FOV = (6/5)*np.pi
+    DT = 0.5
+    MISS_PROB = 0.1  # probability landmark in range will be missed
     MAX_LANDMARKS = 150  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
     landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
@@ -163,6 +165,9 @@ if __name__ == "__main__":
         ax[0].set_ylim([-5, 20])
         ax[1].set_xlim([-5, 20])
         ax[1].set_ylim([-5, 20])
+        ax[0].axis('scaled')
+        ax[1].axis('scaled')
+
 
     u = np.vstack((
         np.tile([0.13, 0.7], (SIM_LENGTH, 1))
@@ -172,8 +177,8 @@ if __name__ == "__main__":
     predicted_position_history = [FlatParticle.get_mean_position(particles)]
     weights_history = [FlatParticle.neff(particles)]
 
-    vehicle = Vehicle(start_position, movement_variance, dt=1)
-    sensor = Sensor(vehicle, landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, 0, 0)
+    vehicle = Vehicle(start_position, movement_variance, dt=DT)
+    sensor = Sensor(vehicle, landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, MISS_PROB, 0)
 
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
@@ -197,7 +202,7 @@ if __name__ == "__main__":
         vehicle.move_noisy(u[i])
         real_position_history.append(vehicle.position)
 
-        FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=1)
+        FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=DT)
 
         measurements = sensor.get_noisy_measurements()
         visible_measurements = np.vstack((measurements["observed"], measurements["phantomSeen"]))
@@ -234,25 +239,8 @@ if __name__ == "__main__":
             for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            # ax[0].plot([vehicle.position[0], vehicle.position[0] + np.cos(vehicle.position[2] + 0.8) * MAX_RANGE],
-            #     [vehicle.position[1], vehicle.position[1] + np.sin(vehicle.position[2] + 0.8) * MAX_RANGE], color='gray')
-
-            # ax[0].plot([vehicle.position[0], vehicle.position[0] + np.cos(vehicle.position[2] - 0.8) * MAX_RANGE],
-            #     [vehicle.position[1], vehicle.position[1] + np.sin(vehicle.position[2] - 0.8) * MAX_RANGE], color='gray')
-
-            thetas = np.linspace(vehicle.position[2] - MAX_FOV/2, vehicle.position[2] + MAX_FOV/2)
-            xs = MAX_RANGE * np.cos(thetas)
-            ys = MAX_RANGE * np.sin(thetas)
-
-            xs += vehicle.position[0]
-            ys += vehicle.position[1]
-
-            # ax[0].plot(xs, ys, color='gray')
-            ax[0].fill(np.append(xs, vehicle.position[0]), np.append(ys, vehicle.position[1]), 'gray', alpha=0.3)
-
-
-            # ax[2].clear()
-            # ax[2].plot(np.arange(len(weights_history)), weights_history)
+            plot_sensor_fov(ax[0], vehicle, MAX_RANGE, MAX_FOV)
+            plot_sensor_fov(ax[1], vehicle, MAX_RANGE, MAX_FOV)
 
 
         if FlatParticle.neff(particles) < 0.6*N:

@@ -82,13 +82,15 @@ __device__ float* get_landmark_prob(float *particle, int i)
 
 __device__ void increment_landmark_prob(float *particle, int i)
 {
-    float *prob = get_landmark_prob(particle, i);
+    int max_landmarks = (int)particle[4];
+    float *prob = (particle + 6 + 6*max_landmarks + i);
     prob[0] += 1.0;
 }
 
 __device__ void decrement_landmark_prob(float *particle, int i)
 {
-    float *prob = get_landmark_prob(particle, i);
+    int max_landmarks = (int)particle[4];
+    float *prob = (particle + 6 + 6*max_landmarks + i);
     prob[0] -= 1.0;
 }
 
@@ -371,7 +373,8 @@ __device__ void update_landmark(float *particle, landmark_measurements *measurem
         if(j == -1) {
             if(in_sensor_range(particle, get_mean(particle, i), range, fov)) {
                 decrement_landmark_prob(particle, i);
-                if(get_landmark_prob(particle, i) < 0) {
+                float prob = get_landmark_prob(particle, i)[0];
+                if(prob < 0) {
                     remove_landmark(particle, i);
                 }
             }
@@ -417,58 +420,6 @@ __device__ void update_landmark(float *particle, landmark_measurements *measurem
         particle[3] *= pdf(measurements->measurements[j], measurement_predicted, Q);
         increment_landmark_prob(particle, i);
     }
-
-    // for(int i = 0; i < n_landmarks; i++) {
-    //     int j = assignment->assignment[i];
-
-    //     if(j == -1) {
-    //         // in sensor range
-    //         // decrement_landmark_prob(particle, i);
-    //         // if(get_landmark_prob(particle, i) < 0) {
-    //         //     to_delete[i] = 1;
-    //         // }
-    //         continue;
-    //     }
-
-    //     float *mean = get_mean(particle, i);
-    //     float mean_x = mean[0];
-    //     float mean_y = mean[1];
-
-    //     float measurement_predicted[2] = { mean_x - x, mean_y - y };
-    //     float residual[2] = {
-    //         measurements->measurements[j][0] - measurement_predicted[0],
-    //         measurements->measurements[j][1] - measurement_predicted[1]
-    //     };
-
-    //     float *cov = get_cov(particle, i);
-
-    //     float Q[4] = {
-    //         cov[0] + measurement_cov[0],
-    //         cov[1] + measurement_cov[1],
-    //         cov[2] + measurement_cov[2],
-    //         cov[3] + measurement_cov[3]
-    //     };
-
-    //     float K[4] = { 0, 0, 0, 0 };
-    //     float Q_inv[4] = { 0, 0, 0, 0 };
-    //     pinv(Q, Q_inv);
-    //     matmul(cov, Q_inv, K);
-
-    //     float K_residual[] = { 0, 0 };
-    //     vecmul(K, residual, K_residual);
-    //     mean[0] += K_residual[0];
-    //     mean[1] += K_residual[1];
-
-    //     float new_cov[] = { 1 - K[0], K[1], K[2], 1 - K[3] };
-    //     matmul(new_cov, cov, new_cov);
-    //     cov[0] = new_cov[0];
-    //     cov[1] = new_cov[1];
-    //     cov[2] = new_cov[2];
-    //     cov[3] = new_cov[3];
-
-    //     particle[3] *= pdf(measurements->measurements[j], measurement_predicted, Q);
-    //     increment_landmark_prob(particle, i);
-    // }
 }
 
 __device__ int get_max_landmarks_in_block(float *particles, int block_size, int thread_id, int n_particles) {

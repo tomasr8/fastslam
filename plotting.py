@@ -14,13 +14,13 @@ def plot_history(ax, history, color='green'):
             ax.plot([x, a], [y, b], color=color)
      
 
-def plot_landmarks(ax, landmarks, color='blue'):
-    ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color=color)
+def plot_landmarks(ax, landmarks, color='blue', zorder=0):
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color=color, zorder=zorder)
 
 
-def plot_measurement(ax, pos, landmarks, color):
+def plot_measurement(ax, pos, landmarks, color, zorder):
     landmarks = landmarks + pos
-    ax.scatter(landmarks[:, 0], landmarks[:, 1], s=20, marker='o', color=color)
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], s=20, marker='o', color=color, zorder=zorder)
 
 
 def plot_connections(ax, s, landmarks, color='purple'):

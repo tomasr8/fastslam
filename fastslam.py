@@ -33,7 +33,7 @@ class Vehicle(object):
         self.position = position
         self.movement_variance = movement_variance
         self.dt = dt
-        self.random = np.random.RandomState(seed=6)
+        self.random = np.random.RandomState(seed=5)
 
     def move_noisy(self, u):
         '''Stochastically moves the vehicle based on the control input and noise
@@ -48,35 +48,6 @@ class Vehicle(object):
         y += np.sin(theta) * dist
 
         self.position = np.array([x, y, theta]).astype(np.float32)
-
-
-# class Sensor(object):
-#     def __init__(self, landmarks, measurement_variance, max_range, dropout):
-#         self.landmarks = landmarks
-#         self.measurement_variance = measurement_variance
-#         self.max_range = max_range
-#         self.dropout = dropout
-
-#     def __get_noisy_measurement(self, position, landmark, measurement_variance):
-#         vector_to_landmark = np.array(landmark - position, dtype=np.float32)
-
-#         a = np.random.normal(0, measurement_variance[0])
-#         vector_to_landmark[0] += a
-#         b = np.random.normal(0, measurement_variance[1])
-#         vector_to_landmark[1] += b
-
-#         return vector_to_landmark
-
-#     def get_noisy_measurements(self, position):
-#         visible_measurements = []
-#         for i, landmark in enumerate(landmarks):
-#             z = self.__get_noisy_measurement(position, landmark, measurement_variance)
-
-#             coin_toss = np.random.uniform(0, 1)
-#             if dist(landmark, position) < self.max_range and coin_toss < self.dropout:
-#                 visible_measurements.append(z)
-
-#         return np.array(visible_measurements, dtype=np.float32)
 
 
 def mean_path_deviation(real_path, predicted_path):
@@ -136,12 +107,12 @@ if __name__ == "__main__":
     PLOT = True
 
     # simulation
-    N = 256  # number of particles
-    SIM_LENGTH = 50  # number of simulation steps
-    MAX_RANGE = 4  # max range of sensor
-    MAX_FOV = (6/5)*np.pi
+    N = 512  # number of particles
+    SIM_LENGTH = 200  # number of simulation steps
+    MAX_RANGE = 5  # max range of sensor
+    MAX_FOV = (1)*np.pi
     DT = 0.5
-    MISS_PROB = 0.1  # probability landmark in range will be missed
+    MISS_PROB = 0.05  # probability landmark in range will be missed
     MAX_LANDMARKS = 150  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
     landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
@@ -170,7 +141,7 @@ if __name__ == "__main__":
 
 
     u = np.vstack((
-        np.tile([0.13, 0.7], (SIM_LENGTH, 1))
+        np.tile([0.06, 0.7], (SIM_LENGTH, 1))
     ))
 
     real_position_history = [start_position]
@@ -189,23 +160,17 @@ if __name__ == "__main__":
     for i in range(u.shape[0]):
         print(i)
 
-        if PLOT:
-            plt.pause(0.05)
-            ax[0].clear()
-            ax[0].set_xlim([-5, 20])
-            ax[0].set_ylim([-5, 20])
-            plot_landmarks(ax[0], landmarks)
-            plot_history(ax[0], real_position_history, color='green')
-            plot_history(ax[0], predicted_position_history, color='orange')
-            plot_particles_grey(ax[0], particles)
-
         vehicle.move_noisy(u[i])
         real_position_history.append(vehicle.position)
 
         FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=DT)
 
         measurements = sensor.get_noisy_measurements()
-        visible_measurements = np.vstack((measurements["observed"], measurements["phantomSeen"]))
+        visible_measurements = measurements["observed"]
+
+        # visible_measurements = np.vstack((measurements["observed"], measurements["phantomSeen"]))
+        missed_landmarks = measurements["missed"]
+        out_of_range_landmarks = measurements["outOfRange"]
         # visible_measurements = sensor.get_noisy_measurements(vehicle.position[:2])
 
         particles = update(
@@ -219,28 +184,35 @@ if __name__ == "__main__":
             ax[0].clear()
             ax[0].set_xlim([-5, 20])
             ax[0].set_ylim([-5, 20])
-            plot_landmarks(ax[0], landmarks)
-            plot_history(ax[0], real_position_history, color='green')
-            plot_history(ax[0], predicted_position_history, color='orange')
+
+            plot_sensor_fov(ax[0], vehicle, MAX_RANGE, MAX_FOV)
+            plot_sensor_fov(ax[1], vehicle, MAX_RANGE, MAX_FOV)
+
             if(visible_measurements.size != 0):
                 plot_connections(ax[0], vehicle.position, visible_measurements + vehicle.position[:2])
+
+            plot_landmarks(ax[0], landmarks, color="blue", zorder=100)
+            plot_landmarks(ax[0], out_of_range_landmarks, color="black", zorder=101)
+            plot_history(ax[0], real_position_history, color='green')
+            plot_history(ax[0], predicted_position_history, color='orange')
             plot_particles_weight(ax[0], particles)
             if(visible_measurements.size != 0):
-                plot_measurement(ax[0], vehicle.position[:2], visible_measurements, color="red")
+                plot_measurement(ax[0], vehicle.position[:2], visible_measurements, color="orange", zorder=103)
+
+            plot_landmarks(ax[0], missed_landmarks, color="red", zorder=102)
 
             ax[1].clear()
             ax[1].set_xlim([-5, 20])
             ax[1].set_ylim([-5, 20])
             best = np.argmax(FlatParticle.w(particles))
-            plot_landmarks(ax[1], landmarks, color="green")
+            plot_landmarks(ax[1], landmarks, color="black")
             plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
             covariances = FlatParticle.get_covariances(particles, best)
 
             for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            plot_sensor_fov(ax[0], vehicle, MAX_RANGE, MAX_FOV)
-            plot_sensor_fov(ax[1], vehicle, MAX_RANGE, MAX_FOV)
+            plt.pause(0.2)
 
 
         if FlatParticle.neff(particles) < 0.6*N:

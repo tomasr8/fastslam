@@ -28,13 +28,13 @@ class Sensor(object):
             "observed": np.zeros((0, 2), dtype=np.float32),
             "missed": np.zeros((0, 2), dtype=np.float32),
             "outOfRange": np.zeros((0, 2), dtype=np.float32),
-            "phantomSeen": np.zeros((0, 2), dtype=np.float32),
-            "phantomNotSeen": np.zeros((0, 2), dtype=np.float32),
+            # "phantomSeen": np.zeros((0, 2), dtype=np.float32),
+            # "phantomNotSeen": np.zeros((0, 2), dtype=np.float32),
         }
 
         position = self.vehicle.position[:2]
 
-        for landmark in self.landmarks:
+        for i, landmark in enumerate(self.landmarks):
             z = self.__get_noisy_measurement(position, landmark)
 
             coin_toss = np.random.uniform(0, 1)
@@ -42,9 +42,9 @@ class Sensor(object):
                 if coin_toss > self.miss_prob:
                     measurements["observed"] = np.vstack((measurements["observed"], [z]))
                 else:
-                    measurements["missed"] = np.vstack((measurements["missed"], [z]))
+                    measurements["missed"] = np.vstack((measurements["missed"], [landmark]))
             else:
-                measurements["outOfRange"] = np.vstack((measurements["outOfRange"], [z]))
+                measurements["outOfRange"] = np.vstack((measurements["outOfRange"], [landmark]))
 
 
         # for landmark in self.phantom_landmarks:

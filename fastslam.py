@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from plotting import (
     plot_connections, plot_history, plot_landmarks, plot_measurement,
     plot_particles_weight, plot_particles_grey, plot_confidence_ellipse,
-    plot_sensor_fov
+    plot_sensor_fov, plot_map
 )
 from particle import Particle, FlatParticle
 from utils import dist
@@ -24,6 +24,7 @@ from pycuda.driver import limit
 
 from cuda.update import cuda_update
 from sensor import Sensor
+from map import compute_map
 
 cuda_time = []
 
@@ -33,12 +34,15 @@ class Vehicle(object):
         self.position = position
         self.movement_variance = movement_variance
         self.dt = dt
-        self.random = np.random.RandomState(seed=5)
+        self.random = np.random.RandomState(seed=4)
 
     def move_noisy(self, u):
         '''Stochastically moves the vehicle based on the control input and noise
         '''
         x, y, theta = self.position
+
+        if u[0] == 0.0 and u[1] == 0.0:
+            return
 
         theta += (u[0] + self.random.normal(0, self.movement_variance[0]))
         theta %= (2*math.pi)
@@ -107,8 +111,8 @@ if __name__ == "__main__":
     PLOT = True
 
     # simulation
-    N = 512  # number of particles
-    SIM_LENGTH = 200  # number of simulation steps
+    N = 4096  # number of particles
+    SIM_LENGTH = 100  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
     DT = 0.5
@@ -141,7 +145,8 @@ if __name__ == "__main__":
 
 
     u = np.vstack((
-        np.tile([0.06, 0.7], (SIM_LENGTH, 1))
+        np.tile([0.0, 0.0], (5, 1)),
+        np.tile([0.06, 0.7], (SIM_LENGTH-5, 1))
     ))
 
     real_position_history = [start_position]
@@ -155,10 +160,16 @@ if __name__ == "__main__":
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
     cuda_cov = cuda.mem_alloc(4 * 4)
 
+    tottime = []
+    resample_time = []
+    ktime = []
+    t = time.time()
+
     # plt.pause(5)
 
     for i in range(u.shape[0]):
-        print(i)
+        # print(i)
+        start = time.time()
 
         vehicle.move_noisy(u[i])
         real_position_history.append(vehicle.position)
@@ -206,22 +217,48 @@ if __name__ == "__main__":
             ax[1].set_ylim([-5, 20])
             best = np.argmax(FlatParticle.w(particles))
             plot_landmarks(ax[1], landmarks, color="black")
-            plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
+            # plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
             covariances = FlatParticle.get_covariances(particles, best)
 
-            for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
+            # n = 200
+            # cmap = plt.cm.get_cmap("hsv", n)
+            # print("n_landmarks:", [len(FlatParticle.get_landmarks(particles, i)) for i in np.argsort(-FlatParticle.w(particles))[:n]])
+            # for n, i in enumerate(np.argsort(-FlatParticle.w(particles))[:n]):
+            #     plot_map(ax[1], FlatParticle.get_landmarks(particles, i), color=cmap(n), marker=".")
+
+
+
+            centroids = compute_map(particles)
+            plot_map(ax[1], centroids, color="orange", marker="o")
+
+            for i, landmark in enumerate(centroids):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
             plt.pause(0.2)
 
 
         if FlatParticle.neff(particles) < 0.6*N:
-            print("resampling..")
+            # print("resampling..")
+            s = time.time()
             particles = FlatParticle.resample(particles)
+            resample_time.append(time.time() - s)
+        else:
+            resample_time.append(0)
 
         weights_history.append(FlatParticle.neff(particles))
+        tottime.append(time.time() - start)
+
+        start = time.time()
+        centroids = compute_map(particles)
+        ktime.append(time.time() - start)
+
+    print("TOTAL: {:.5f}s".format((time.time() - t)))
+
+    print("Mean total compute time: {:.5f}, stdev: {:.5f}".format(np.mean(tottime), np.std(tottime)))
+    print("Mean CUDA compute time: {:.5f}, stdev: {:.5f}".format(np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000))
+    print("Mean resample time: {:.5f}, stdev: {:.5f}".format(np.mean(resample_time), np.std(resample_time)))
+    print("Mean kmeans time: {:.5f}, stdev: {:.5f}".format(np.mean(ktime), np.std(ktime)))
 
 
-    print("Mean CUDA compute time: ", np.mean(cuda_time) / 1000, ", stdev: ", np.std(cuda_time) / 1000)
     deviation = mean_path_deviation(real_position_history, predicted_position_history)
     print(f"Mean path deviation: {deviation}")

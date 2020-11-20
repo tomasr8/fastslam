@@ -1,6 +1,7 @@
 import math
 import numpy as np
 from numpy.random import random
+import time
 
 class Particle(object):
     def __init__(self, x: float, y: float, theta: float, n_landmarks: int, w: float):
@@ -117,18 +118,19 @@ class Particle(object):
 
 
 def systematic_resample(weights):
-    N = len(weights)
+    N = weights.shape[0]
 
     # make N subdivisions, and choose positions with a consistent random offset
     positions = (random() + np.arange(N)) / N
 
     indexes = np.zeros(N, 'i')
     cumulative_sum = np.cumsum(weights)
+    cumulative_sum[-1] = 1.0
 
     i, j = 0, 0
     while i < N:
         # j == N-1 prevents float imprecision when summing many elements
-        if j == N-1 or positions[i] < cumulative_sum[j]:
+        if positions[i] < cumulative_sum[j]:
             indexes[i] = j
             i += 1
         else:
@@ -241,6 +243,9 @@ class FlatParticle(object):
         '''Stochastically moves particles based on the control input and noise
 
         '''
+        if u[0] == 0.0 and u[1] == 0.0:
+            return
+
         N = FlatParticle.len(particles)
         max_landmarks = int(particles[4])
         step = 6 + 7*max_landmarks
@@ -263,9 +268,10 @@ class FlatParticle(object):
 
     @staticmethod
     def resample(particles):
-        '''Resamples particles using systematic resample from filterpy
+        '''Resamples particles using systematic resample
 
         '''
+        start = time.time()
         N = FlatParticle.len(particles)
         max_landmarks = int(particles[4])
         size = 6 + 7*max_landmarks
@@ -276,13 +282,38 @@ class FlatParticle(object):
         new_particles = particles.copy()
         for i, index in enumerate(indexes):
             old_offset = size * index
-            particle = particles[old_offset:old_offset+size].copy()
-            particle[3] = 1.0/N
-
             new_offset = size * i
-            new_particles[new_offset:new_offset+size] = particle
+            new_particles[new_offset:new_offset+size] = particles[old_offset:old_offset+size]
 
+
+        new_particles[3::size] = 1.0/N
+        print("resample time: ", time.time() - start)
         return new_particles
+
+
+    # @staticmethod
+    # def resample(particles):
+    #     '''Resamples particles using systematic resample from filterpy
+
+    #     '''
+    #     N = FlatParticle.len(particles)
+    #     max_landmarks = int(particles[4])
+    #     size = 6 + 7*max_landmarks
+
+    #     weights = FlatParticle.w(particles)
+    #     indexes = systematic_resample(weights)
+
+    #     new_particles = particles.copy()
+    #     for i, index in enumerate(indexes):
+    #         old_offset = size * index
+    #         particle = particles[old_offset:old_offset+size].copy()
+
+    #         particle[3] = 1.0/N
+
+    #         new_offset = size * i
+    #         new_particles[new_offset:new_offset+size] = particle
+
+    #     return new_particles
 
     @staticmethod
     def rescale(particles):

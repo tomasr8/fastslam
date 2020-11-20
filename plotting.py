@@ -17,6 +17,8 @@ def plot_history(ax, history, color='green'):
 def plot_landmarks(ax, landmarks, color='blue', zorder=0):
     ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color=color, zorder=zorder)
 
+def plot_map(ax, landmarks, color='blue', marker="."):
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], s=10, marker=marker, color=color)
 
 def plot_measurement(ax, pos, landmarks, color, zorder):
     landmarks = landmarks + pos

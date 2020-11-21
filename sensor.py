@@ -58,7 +58,7 @@ class Sensor(object):
 
 
         for key in measurements:
-            measurements[key] = np.array(measurements[key], dtype=np.float32)
+            measurements[key] = measurements[key].astype(np.float32)
 
         return measurements
 

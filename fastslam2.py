@@ -11,7 +11,7 @@ from plotting import (
     plot_particles_weight, plot_particles_grey, plot_confidence_ellipse,
     plot_sensor_fov, plot_map
 )
-from particle import Particle, FlatParticle
+from particle import Particle, FlatParticle, systematic_resample
 from utils import dist
 
 from multiprocessing import Process
@@ -22,11 +22,12 @@ import pycuda.autoinit
 from pycuda.autoinit import context
 from pycuda.driver import limit
 
-from cuda.update import cuda_update
+from cuda.update2 import cuda_update, cuda_resample, cuda_predict, cuda_mean
 from sensor import Sensor
 from map import compute_map
 
 cuda_time = []
+cuda_resample_time = []
 
 
 class Vehicle(object):
@@ -68,8 +69,10 @@ def mean_path_deviation(real_path, predicted_path):
     return np.array(diffs).mean(axis=0)
 
 def update(
-        particles, threads, block_size, z_real, observation_variance, cuda_particles,
-        cuda_measurements, cuda_cov, threshold, max_range, max_fov):
+        i, particles, threads, block_size, z_real, observation_variance, cuda_particles, cuda_new_particles,
+        cuda_idx, cuda_measurements, cuda_cov, threshold, max_range, max_fov, u, sigmas, dt):
+
+
 
     measurements = z_real.astype(np.float32)
 
@@ -83,23 +86,86 @@ def update(
     start.record()
 
     cuda.memcpy_htod(cuda_particles, particles)
+    cuda.memcpy_htod(cuda_new_particles, particles)
     cuda.memcpy_htod(cuda_measurements, measurements)
     cuda.memcpy_htod(cuda_cov, measurement_cov)
 
+    if i == 0:
+        func = cuda_predict.get_function("init_kernel")
+        func(np.int32(2), block=(threads, 1, 1))
+
+    func = cuda_predict.get_function("predict")
+    func(
+        cuda_particles, np.int32(block_size), np.int32(FlatParticle.len(particles)),
+        np.float32(u[0]), np.float32(u[1]), np.float32(sigmas[0]), np.float32(sigmas[1]),
+        np.float32(dt),
+        block=(threads, 1, 1)
+    )
+
     func = cuda_update.get_function("update")
-    func(cuda_particles, np.int32(block_size), cuda_measurements,
+    func(cuda_particles, cuda_new_particles, np.int32(block_size), cuda_measurements,
          np.int32(FlatParticle.len(particles)), np.int32(len(measurements)),
          cuda_cov, np.float32(threshold), np.float32(max_range), np.float32(max_fov),
          block=(threads, 1, 1), grid=(1, 1, 1)
          )
 
+    # cuda.memcpy_dtoh(particles, cuda_new_particles)
     cuda.memcpy_dtoh(particles, cuda_particles)
+
 
     end.record()
     end.synchronize()
     cuda_time.append(start.time_till(end))
 
+    # ======================================
+
+    # start = time.time()
+
+    # N = FlatParticle.len(particles)
+    # max_landmarks = int(particles[4])
+    # size = 6 + 7*max_landmarks
+
+    # weights = FlatParticle.w(particles)
+    # indexes = systematic_resample(weights).astype(np.int32)
+
+    # cuda.memcpy_htod(cuda_idx, indexes)
+
+    # if FlatParticle.neff(particles) < 0.6*FlatParticle.len(particles):
+    #     func = cuda_resample.get_function("resample")
+    #     func(
+    #         cuda_particles,
+    #         cuda_new_particles, cuda_idx, np.int32(block_size),
+    #         np.int32(FlatParticle.len(particles)), 
+    #         # np.float32(np.random.uniform()),
+    #         block=(threads, 1, 1), grid=(1, 1, 1)
+    #     )
+
+    # w = np.zeros(FlatParticle.len(particles), dtype=np.float32)
+    # cuda.memcpy_dtoh(w, cuda_idx)
+
+    # cuda_resample_time.append((time.time() - start)*1000)
+
+
     FlatParticle.rescale(particles)
+    cuda.memcpy_htod(cuda_particles, particles)
+
+
+
+
+    func = cuda_mean.get_function("mean_position")
+    func(
+        cuda_particles, np.int32(FlatParticle.len(particles)),
+        block=(1, 1, 1)
+    )
+
+    # max_landmarks = int(particles[4])
+    # step = 6 + 7*max_landmarks
+
+    # xs = particles[0::step]
+
+    # print("xs sum", np.sum(xs))
+    print("mean", FlatParticle.get_mean_position(particles))
+
     return particles
 
 
@@ -111,8 +177,8 @@ if __name__ == "__main__":
     PLOT = False
 
     # simulation
-    N = 8192  # number of particles
-    SIM_LENGTH = 200  # number of simulation steps
+    N = 256  # number of particles
+    SIM_LENGTH = 25  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
     DT = 0.5
@@ -132,7 +198,6 @@ if __name__ == "__main__":
     BLOCK_SIZE = N//THREADS  # number of particles per thread
 
     particles = FlatParticle.get_initial_particles(N, MAX_LANDMARKS, start_position, sigma=0.2)
-    resampled_particles = particles.copy()
     print("Particles memory:", particles.nbytes / 1024, "KB")
 
     if PLOT:
@@ -158,24 +223,23 @@ if __name__ == "__main__":
     sensor = Sensor(vehicle, landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, MISS_PROB, 0)
 
     cuda_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
+    cuda_new_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
+    cuda_idx = cuda.mem_alloc(4 * N)
+    # cuda_weights = cuda.mem_alloc(4 * N)
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
     cuda_cov = cuda.mem_alloc(4 * 4)
-
-    tottime = []
-    resample_time = []
-    ktime = []
-    t = time.time()
 
     # plt.pause(5)
 
     for i in range(u.shape[0]):
-        # print(i)
-        start = time.time()
+        print(i)
 
         vehicle.move_noisy(u[i])
         real_position_history.append(vehicle.position)
 
-        FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=DT)
+        # start = time.time()
+        # FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=DT)
+        # print("predict: ", time.time() - start)
 
         measurements = sensor.get_noisy_measurements()
         visible_measurements = measurements["observed"]
@@ -186,8 +250,9 @@ if __name__ == "__main__":
         # visible_measurements = sensor.get_noisy_measurements(vehicle.position[:2])
 
         particles = update(
-            particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
-            cuda_particles, cuda_measurements, cuda_cov, THRESHOLD, MAX_RANGE, MAX_FOV
+            i, particles, THREADS, BLOCK_SIZE, visible_measurements, measurement_variance,
+            cuda_particles, cuda_new_particles, cuda_idx, cuda_measurements, cuda_cov, THRESHOLD, MAX_RANGE, MAX_FOV,
+            u[i], movement_variance, DT
         )
 
         predicted_position_history.append(FlatParticle.get_mean_position(particles))
@@ -216,10 +281,14 @@ if __name__ == "__main__":
             ax[1].clear()
             ax[1].set_xlim([-5, 20])
             ax[1].set_ylim([-5, 20])
-            best = np.argmax(FlatParticle.w(particles))
+            # best = np.argmax(FlatParticle.w(particles))
             plot_landmarks(ax[1], landmarks, color="black")
             # plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
-            covariances = FlatParticle.get_covariances(particles, best)
+            # covariances = FlatParticle.get_covariances(particles, best)
+
+            # for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
+            #     plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
+
 
             # n = 200
             # cmap = plt.cm.get_cmap("hsv", n)
@@ -227,42 +296,24 @@ if __name__ == "__main__":
             # for n, i in enumerate(np.argsort(-FlatParticle.w(particles))[:n]):
             #     plot_map(ax[1], FlatParticle.get_landmarks(particles, i), color=cmap(n), marker=".")
 
-
-
-            centroids = compute_map(particles)
-            plot_map(ax[1], centroids, color="orange", marker="o")
-
-            for i, landmark in enumerate(centroids):
-                plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
+            # start = time.time()
+            # centroids = compute_map(particles)
+            # print("kmeans: ", time.time() - start)
+            # plot_map(ax[1], centroids, color="orange", marker="o")
 
             plt.pause(0.2)
 
 
         if FlatParticle.neff(particles) < 0.6*N:
             print("resampling..")
-            s = time.time()
-            FlatParticle.resample(particles, resampled_particles)
-            tmp = particles
-            particles = resampled_particles
-            resampled_particles = tmp
-            resample_time.append(time.time() - s)
-        else:
-            resample_time.append(0)
+            start = time.time()
+            particles = FlatParticle.resample2(particles)
+            print("resample: ", time.time() - start)
 
         weights_history.append(FlatParticle.neff(particles))
-        tottime.append(time.time() - start)
-
-        # start = time.time()
-        # centroids = compute_map(particles)
-        # ktime.append(time.time() - start)
-
-    print("TOTAL: {:.5f}s".format((time.time() - t)))
-
-    print("Mean total compute time: {:.5f}, stdev: {:.5f}".format(np.mean(tottime), np.std(tottime)))
-    print("Mean CUDA compute time: {:.5f}, stdev: {:.5f}".format(np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000))
-    print("Mean resample time: {:.5f}, stdev: {:.5f}".format(np.mean(resample_time), np.std(resample_time)))
-    # print("Mean kmeans time: {:.5f}, stdev: {:.5f}".format(np.mean(ktime), np.std(ktime)))
 
 
+    print("Mean CUDA compute time: ", np.mean(cuda_time) / 1000, ", stdev: ", np.std(cuda_time) / 1000)
+    # print("Mean CUDA resample time: ", np.mean(cuda_resample_time) / 1000, ", stdev: ", np.std(cuda_resample_time) / 1000)
     deviation = mean_path_deviation(real_position_history, predicted_position_history)
     print(f"Mean path deviation: {deviation}")

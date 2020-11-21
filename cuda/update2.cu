@@ -25,6 +25,10 @@ typedef struct
     float *measurement_cov;
 } landmark_measurements;
 
+// __device__ float norm_squared(float *v) {
+//     return v[0]*v[0] + v[1]*v[1];
+// }
+
 __device__ float vecnorm(float *v) {
     return sqrt(v[0]*v[0] + v[1]*v[1]);
 }
@@ -439,10 +443,9 @@ __device__ int get_max_landmarks_in_block(float *particles, int block_size, int 
 }
 
 __global__ void update(
-    float *particles, int block_size, float measurements_array[][2], int n_particles, int n_measurements,
+    float *particles, float *new_particles, int block_size, float measurements_array[][2], int n_particles, int n_measurements,
     float *measurement_cov, float threshold, float range, float fov)
 {
-    // int i = threadIdx.x + blockIdx.x * blockDim.x;
 
     if(n_measurements == 0) {
         return;
@@ -453,18 +456,18 @@ __global__ void update(
 
     int max_landmarks = get_max_landmarks_in_block(particles, block_size, thread_id, n_particles);
 
-    int scratchpad_size = (max_landmarks + n_measurements + (3 * max_landmarks * n_measurements)) * sizeof(int);
+    int scratchpad_size = (max_landmarks + n_measurements + (3 * max_landmarks * n_measurements) + n_particles) * sizeof(int);
     int *scratchpad;
     int *assignment_memory;
     int *data_assoc_memory;
     float *matrix_memory;
+    float *cumsum;
 
-    if(scratchpad_size > 0) {
-        scratchpad = (int *)malloc(scratchpad_size);
-        assignment_memory = scratchpad;
-        data_assoc_memory = assignment_memory + (max_landmarks + n_measurements);
-        matrix_memory = (float *)(data_assoc_memory + (2 * max_landmarks * n_measurements));
-    }
+    scratchpad = (int *)malloc(scratchpad_size);
+    assignment_memory = scratchpad;
+    data_assoc_memory = assignment_memory + (max_landmarks + n_measurements);
+    matrix_memory = (float *)(data_assoc_memory + (2 * max_landmarks * n_measurements));
+    cumsum = (float *)(matrix_memory + (max_landmarks * n_measurements));
 
     landmark_measurements measurements;
     measurements.n_measurements = n_measurements;
@@ -474,7 +477,7 @@ __global__ void update(
     for(int k = 0; k < block_size; k++) {
         int particle_id = thread_id*block_size + k;
         if(particle_id >= n_particles) {
-            return;
+            break;
         }
         
         float *particle = get_particle(particles, particle_id);
@@ -511,7 +514,70 @@ __global__ void update(
         add_unassigned_measurements_as_landmarks(particle, assignmentx.assigned_measurements, &measurements);
     }
 
-    if(scratchpad_size > 0) {
-        free(scratchpad);
-    }
+
+
+    // int particle_size = 6 + 7*((int)particles[4]);
+    // int id_min = thread_id*block_size;
+    // int id_max = MIN(thread_id*block_size + (block_size - 1), n_particles - 1);
+
+    // float sum = 0;
+    // for(int i = 0; i < n_particles; i++) {
+    //     float w = get_particle(particles, i)[3];
+    //     sum += w * w;
+    // }
+
+    // float neff = 1.0/sum;
+    // if(thread_id == 0) {
+    //     printf("neff: %f %f\n", neff, 0.6*n_particles);
+    // }
+    // if(neff > 0.6*n_particles) {
+    //     for(int i = id_min; i <= id_max; i++) {
+    //         float *new_particle = get_particle(new_particles, i);
+    //         float *old_particle = get_particle(particles, i);
+
+    //         memcpy(new_particle, old_particle, particle_size);
+
+    //         // for(int k = 0; k < particle_size; k++) {
+    //         //     new_particle[k] = old_particle[k];
+    //         // }
+    //     }
+    //     free(scratchpad);
+    //     return;
+    // }
+
+    // cumsum[0] = get_particle(particles, 0)[3];
+
+    // for(int i = 1; i < n_particles; i++) {
+    //     cumsum[i] = cumsum[i-1] + get_particle(particles, i)[3];
+    // }
+
+    // cumsum[n_particles-1] = 1.0;
+
+    // int i = 0;
+    // int j = 0;
+    // while(i < n_particles) {
+    //     if( ((i + random)/n_particles) < cumsum[j] ){
+
+    //         if(i >= id_min && i <= id_max) {
+    //             float *new_particle = get_particle(new_particles, i);
+    //             float *old_particle = get_particle(particles, j);
+
+    //             memcpy(new_particle, old_particle, particle_size);
+    //             // for(int k = 0; k < particle_size; k++) {
+    //             //     new_particle[k] = old_particle[k];
+    //             // }
+
+    //         }
+
+    //         if(i > id_max) {
+    //             break;
+    //         }
+
+    //         i += 1;
+    //     } else {
+    //         j += 1;
+    //     }
+    // }
+
+    free(scratchpad);
 }

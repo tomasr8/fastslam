@@ -267,7 +267,31 @@ class FlatParticle(object):
         return 1.0/np.sum(np.square(weights))
 
     @staticmethod
-    def resample(particles):
+    def resample(particles, new_particles):
+        '''Resamples particles using systematic resample
+
+        '''
+        start = time.time()
+        N = FlatParticle.len(particles)
+        max_landmarks = int(particles[4])
+        size = 6 + 7*max_landmarks
+
+        weights = FlatParticle.w(particles)
+        indexes = systematic_resample(weights)
+
+        # new_particles = particles.copy()
+        for i, index in enumerate(indexes):
+            old_offset = size * index
+            new_offset = size * i
+            new_particles[new_offset:new_offset+size] = particles[old_offset:old_offset+size]
+
+        new_particles[3::size] = 1.0/N
+        print("resample time: ", time.time() - start)
+        return new_particles
+
+
+    @staticmethod
+    def resample2(particles):
         '''Resamples particles using systematic resample
 
         '''

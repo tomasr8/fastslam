@@ -8,6 +8,10 @@ __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
 }
 
+/*
+ * Exctracts the particle weights and computes the estimated position.
+ * This code is not parallelized since it is reasonobly fast.
+ */
 __global__ void get_weights_and_mean_position(float *particles, int n_particles, float *weights, float *mean) {
     float x = 0;
     float y = 0;

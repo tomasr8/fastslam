@@ -15,10 +15,16 @@ __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
 }
 
+// Manual extern "C" to stop name mangling shenanigans
+// Otherwise doesn't compile because curand complains
+extern "C" {
 
-extern "C" { // name mangling shenanigans
+// Based on https://stackoverflow.com/questions/46169633/how-to-generate-random-number-inside-pycuda-kernel    
+// Each thread has a random state
 __device__ curandState_t* states[<<THREADS>>];
 
+
+// This function is only called once to initialize the rngs.
 __global__ void init_rng(int seed)
 {
     int tidx = threadIdx.x + blockIdx.x * blockDim.x;
@@ -27,7 +33,9 @@ __global__ void init_rng(int seed)
     states[tidx] = s;
 }
 
-
+// Moves particles based on the control input and movement model.
+// In the future, this will probably be replaced to reflect the
+// actual sensors in the car e.g. IMU. 
 __global__ void predict(float *particles, int block_size, int n_particles, float ua, float ub, float sigma_a, float sigma_b, float dt) {
     if(ua == 0.0 && ub == 0.0) {
         return;
@@ -40,6 +48,9 @@ __global__ void predict(float *particles, int block_size, int n_particles, float
 
     for(int i = id_min; i <= id_max; i++) {
         float *particle = get_particle(particles, i);
+        // curand_normal() samples from standard normal
+        // to get a general N(mu, sigma), we use Y = mu + sigma*X,
+        // though in our case mu=0.
         particle[2] += ua + sigma_a * curand_normal(states[thread_id]);
         particle[2] = fmod(particle[2], (float)(2*M_PI));
 

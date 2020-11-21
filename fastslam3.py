@@ -73,10 +73,10 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = True
+    PLOT = False
 
     # simulation
-    N = 1024  # number of particles
+    N = 8192  # number of particles
     SIM_LENGTH = 200  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
@@ -96,7 +96,6 @@ if __name__ == "__main__":
 
     # GPU
     context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)  # heap size available to the GPU threads
-    # fixed for 256 threads for now
     THREADS = 256  # number of GPU threads
     assert N >= THREADS
     BLOCK_SIZE = N//THREADS  # number of particles per thread
@@ -144,7 +143,6 @@ if __name__ == "__main__":
     cuda.memcpy_htod(cuda_new_particles, particles)
 
     movement_seed = 2
-    # fixed for 256 threads for now
     cuda_modules["predict"].get_function("init_rng")(np.int32(movement_seed), block=(THREADS, 1, 1))
 
 

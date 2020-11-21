@@ -4,7 +4,11 @@ from pycuda.compiler import SourceModule
 import pycuda.autoinit
 
 
-def preprocess_module(module, args, no_extern_c=False):
+def preprocess_module(module: str, args: dict, no_extern_c=False):
+    '''Replaces special markers <<...>> in cuda source code with
+       values provided in the args dictionary.
+
+    '''
     def repl(match):
         contents = match.group(1)
         if contents in args:

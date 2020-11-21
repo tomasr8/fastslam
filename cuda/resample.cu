@@ -10,21 +10,33 @@ __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
 }
 
+/*
+ * Copies particles from one memory block to another based on indices
+ * given by systematic resampling.
+ *
+ * The systematic resampling is handled on the host. I haven't yet figured out
+ * how to do it efficiently on the device and the CPU implementation is fast enough.
+ */
 __global__ void resample(
     float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)
 {
 
+    // *idx is a mapping where i is the index of the new particle and
+    // idx[i] is the index of the old particle.
+
     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
 
-    int particle_size = 6 + 7*((int)old_particles[4]);
+    // int particle_size = 6 + 7*((int)old_particles[4]);
     int id_min = thread_id*block_size;
-    int id_max = MIN(thread_id*block_size + (block_size - 1), n_particles - 1);
+    int id_max = thread_id*block_size + (block_size - 1);
+    // int id_max = MIN(thread_id*block_size + (block_size - 1), n_particles - 1);
+
 
     for(int i = id_min; i <= id_max; i++) {
         float *old_particle = get_particle(old_particles, idx[i]);
         float *new_particle = get_particle(new_particles, i);
 
-        for(int k = 0; k < particle_size; k++) {
+        for(int k = 0; k < PARTICLE_SIZE; k++) {
             new_particle[k] = old_particle[k];
         }
 

@@ -8,6 +8,9 @@ __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
 }
 
+/*
+ * Rescales particle weights such that \sum_i w_i = 1
+ */
 __global__ void rescale(float *particles, int n_particles) {
     float s = 0;
 
@@ -16,6 +19,7 @@ __global__ void rescale(float *particles, int n_particles) {
         s += particle[3];
     }
 
+    // prevent float underflow
     s += 1.e-30;
 
     for(int i = 0; i < n_particles; i++) {

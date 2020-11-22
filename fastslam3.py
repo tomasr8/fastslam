@@ -73,7 +73,7 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = False
+    PLOT = True
 
     # simulation
     N = 8192  # number of particles
@@ -98,6 +98,7 @@ if __name__ == "__main__":
     context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)  # heap size available to the GPU threads
     THREADS = 256  # number of GPU threads
     assert N >= THREADS
+    assert N % THREADS == 0
     BLOCK_SIZE = N//THREADS  # number of particles per thread
     PARTICLE_SIZE = 6 + 7*MAX_LANDMARKS
 
@@ -136,7 +137,7 @@ if __name__ == "__main__":
     host_weights = np.zeros(N, dtype=np.float32)
     host_mean_position = np.zeros(3, dtype=np.float32)
 
-    cuda_modules = load_cuda_modules(THREADS=THREADS, PARTICLE_SIZE=PARTICLE_SIZE)
+    cuda_modules = load_cuda_modules(THREADS=THREADS, PARTICLE_SIZE=PARTICLE_SIZE, BLOCK_SIZE=BLOCK_SIZE)
 
     cuda.memcpy_htod(cuda_cov, measurement_covariance)
     cuda.memcpy_htod(cuda_old_particles, particles)

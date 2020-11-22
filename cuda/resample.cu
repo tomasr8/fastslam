@@ -5,6 +5,7 @@
 #define MIN(a,b) (((a)<(b))?(a):(b))
 
 #define PARTICLE_SIZE <<PARTICLE_SIZE>>
+#define BLOCK_SIZE <<BLOCK_SIZE>>
 
 __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
@@ -20,27 +21,39 @@ __device__ float* get_particle(float *particles, int i) {
 __global__ void resample(
     float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)
 {
-
     // *idx is a mapping where i is the index of the new particle and
     // idx[i] is the index of the old particle.
 
     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
 
-    // int particle_size = 6 + 7*((int)old_particles[4]);
-    int id_min = thread_id*block_size;
-    int id_max = thread_id*block_size + (block_size - 1);
-    // int id_max = MIN(thread_id*block_size + (block_size - 1), n_particles - 1);
+    // assumes n_particles is a multiple of block_size
+    int start = thread_id*block_size;
 
+    for(int i = 0; i < BLOCK_SIZE; i++) {
+        float *old_particle = get_particle(old_particles, idx[start+i]);
+        float *new_particle = get_particle(new_particles, start+i);
 
-    for(int i = id_min; i <= id_max; i++) {
-        float *old_particle = get_particle(old_particles, idx[i]);
-        float *new_particle = get_particle(new_particles, i);
+        int max_landmarks = (int)old_particle[4];
+        int n_landmarks = (int)old_particle[5];
 
-        for(int k = 0; k < PARTICLE_SIZE; k++) {
-            new_particle[k] = old_particle[k];
-        }
-
+        new_particle[0] = old_particle[0];
+        new_particle[1] = old_particle[1];
+        new_particle[2] = old_particle[2];
         new_particle[3] = 1.0/n_particles;
+        new_particle[4] = old_particle[4];
+        new_particle[5] = old_particle[5];
+
+        for(int k = 0; k < n_landmarks; k++) {
+            new_particle[6+2*k] = old_particle[6+2*k];
+            new_particle[6+2*k+1] = old_particle[6+2*k+1];
+
+            new_particle[6+2*max_landmarks+4*k] = old_particle[6+2*max_landmarks+4*k];
+            new_particle[6+2*max_landmarks+4*k+1] = old_particle[6+2*max_landmarks+4*k+1];
+            new_particle[6+2*max_landmarks+4*k+2] = old_particle[6+2*max_landmarks+4*k+2];
+            new_particle[6+2*max_landmarks+4*k+3] = old_particle[6+2*max_landmarks+4*k+3];
+
+            new_particle[6+6*max_landmarks+k] = old_particle[6+6*max_landmarks+k];
+        }
     }
 }
 

@@ -37,10 +37,14 @@ def load_cuda_modules(**args):
     with open("cuda/weights_and_mean_position.cu", "r") as f:
         weights_and_mean = f.read()
 
+    with open("cuda/kmeans.cu", "r") as f:
+        kmeans = f.read()
+
     return {
         "predict": preprocess_module(predict, args, no_extern_c=True),
         "update": preprocess_module(update, args),
         "rescale": preprocess_module(rescale, args),
         "resample": preprocess_module(resample, args),
-        "weights_and_mean": preprocess_module(weights_and_mean, args)
+        "weights_and_mean": preprocess_module(weights_and_mean, args),
+        "kmeans": preprocess_module(kmeans, args)
     }

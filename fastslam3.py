@@ -73,7 +73,7 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = True
+    PLOT = False
 
     # simulation
     N = 8192  # number of particles
@@ -96,7 +96,7 @@ if __name__ == "__main__":
 
     # GPU
     context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)  # heap size available to the GPU threads
-    THREADS = 256  # number of GPU threads
+    THREADS = 512  # number of GPU threads
     assert N >= THREADS
     assert N % THREADS == 0
     BLOCK_SIZE = N//THREADS  # number of particles per thread
@@ -132,14 +132,24 @@ if __name__ == "__main__":
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
     cuda_weights = cuda.mem_alloc(4 * N)
     cuda_indices = cuda.mem_alloc(4 * N)
+    cuda_map = cuda.mem_alloc(4 * 2 * MAX_LANDMARKS)
+    cuda_map_size = cuda.mem_alloc(4)
+    cuda_rescale_sum = cuda.mem_alloc(4)
     cuda_cov = cuda.mem_alloc(4 * 4)
     cuda_mean_position = cuda.mem_alloc(4 * 3)
     host_weights = np.zeros(N, dtype=np.float32)
     host_mean_position = np.zeros(3, dtype=np.float32)
 
-    cuda_modules = load_cuda_modules(THREADS=THREADS, PARTICLE_SIZE=PARTICLE_SIZE, BLOCK_SIZE=BLOCK_SIZE)
+    cuda_modules = load_cuda_modules(
+        THREADS=THREADS,
+        PARTICLE_SIZE=PARTICLE_SIZE,
+        N_PARTICLES=N,
+        BLOCK_SIZE=BLOCK_SIZE
+    )
 
     cuda.memcpy_htod(cuda_cov, measurement_covariance)
+    cuda.memcpy_htod(cuda_rescale_sum, np.zeros(1, dtype=np.float32))
+    cuda.memcpy_htod(cuda_map, np.zeros(MAX_LANDMARKS, dtype=np.float32))
     cuda.memcpy_htod(cuda_old_particles, particles)
     cuda.memcpy_htod(cuda_new_particles, particles)
 
@@ -155,7 +165,10 @@ if __name__ == "__main__":
     # plt.pause(5)
 
     for i in range(u.shape[0]):
-        # print(i)
+        print("=====")
+        print(i)
+        print("=====")
+
         start = time.time()
 
         vehicle.move_noisy(u[i])
@@ -166,10 +179,7 @@ if __name__ == "__main__":
         missed_landmarks = measurements["missed"]
         out_of_range_landmarks = measurements["outOfRange"]
 
-        # FlatParticle.predict(particles, u[i], sigmas=movement_variance, dt=DT)
 
-        # cuda.memcpy_htod(cuda_old_particles, particles)
-        # cuda.memcpy_htod(cuda_new_particles, particles)
         cuda.memcpy_htod(cuda_measurements, visible_measurements)
 
         cuda_modules["predict"].get_function("predict")(
@@ -187,30 +197,102 @@ if __name__ == "__main__":
             block=(THREADS, 1, 1)
         )
 
-        cuda_modules["rescale"].get_function("rescale")(
-            cuda_old_particles, np.int32(N),
-            block=(1, 1, 1)
+        cuda_modules["rescale"].get_function("sum_weights")(
+            cuda_old_particles, cuda_rescale_sum,
+            block=(THREADS, 1, 1)
         )
 
-        cuda_modules["weights_and_mean"].get_function("get_weights_and_mean_position")(
-            cuda_old_particles, np.int32(N), cuda_weights, cuda_mean_position,
-            block=(1, 1, 1)
+        cuda_modules["rescale"].get_function("divide_weights")(
+            cuda_old_particles, cuda_rescale_sum,
+            block=(THREADS, 1, 1), grid=(N//THREADS, 1, 1)
         )
 
-        # cuda.memcpy_dtoh(particles, cuda_old_particles)
+        # cuda_modules["rescale"].get_function("rescale")(
+        #     cuda_old_particles, np.int32(N),
+        #     block=(1, 1, 1)
+        # )
+
+        cuda_modules["weights_and_mean"].get_function("get_weights")(
+            cuda_old_particles, cuda_weights,
+            block=(THREADS, 1, 1), grid=(N//THREADS, 1, 1)
+        )
+
+        cuda_modules["weights_and_mean"].get_function("get_mean_position")(
+            cuda_old_particles, cuda_mean_position,
+            block=(THREADS, 1, 1)
+        )
+
+        # cuda_modules["weights_and_mean"].get_function("get_weights_and_mean_position")(
+        #     cuda_old_particles, np.int32(N), cuda_weights, cuda_mean_position,
+        #     block=(1, 1, 1)
+        # )
+
         cuda.memcpy_dtoh(host_weights, cuda_weights)
         cuda.memcpy_dtoh(host_mean_position, cuda_mean_position)
 
-        # FlatParticle.rescale(particles)
-
-        # print("mean position:", FlatParticle.get_mean_position(particles), host_mean_position)
-        # predicted_position_history.append(FlatParticle.get_mean_position(particles))
         predicted_position_history.append(host_mean_position.copy())
+
+
+
+        cuda_modules["kmeans"].get_function("initialize_centroids")(
+            cuda_old_particles, cuda_weights, np.int32(N), cuda_map, cuda_map_size,
+            block=(1, 1, 1)
+        )
+
+        n_centroids = np.zeros(1, dtype=np.int32)
+        cuda.memcpy_dtoh(n_centroids, cuda_map_size)
+        n_centroids = int(n_centroids[0])
+        print(n_centroids)
+
+        cuda_modules["kmeans"].get_function("relabel")(
+            cuda_old_particles, cuda_new_particles, cuda_map,
+            np.int32(BLOCK_SIZE), np.int32(N), np.int32(n_centroids),
+            block=(THREADS, 1, 1), grid=(N//THREADS, 1, 1)
+        )
+
+        cuda_modules["kmeans"].get_function("compute_centroids")(
+            cuda_old_particles, cuda_new_particles, cuda_map,
+            np.int32(N), np.int32(n_centroids),
+            block=(n_centroids, 1, 1)
+        )
+
+        centroids = np.zeros(MAX_LANDMARKS*2, dtype=np.float32)
+        cuda.memcpy_dtoh(centroids, cuda_map)
+        centroids = centroids.reshape((MAX_LANDMARKS, 2))[:n_centroids]
+        # print(centroids)
+
 
 
 
         if PLOT:
             cuda.memcpy_dtoh(particles, cuda_old_particles)
+
+            # cuda_modules["kmeans"].get_function("initialize_centroids")(
+            #     cuda_old_particles, cuda_weights, np.int32(N), cuda_map, cuda_map_size,
+            #     block=(1, 1, 1)
+            # )
+
+            # n_centroids = np.zeros(1, dtype=np.int32)
+            # cuda.memcpy_dtoh(n_centroids, cuda_map_size)
+            # n_centroids = int(n_centroids[0])
+            # print(n_centroids)
+
+            # cuda_modules["kmeans"].get_function("relabel")(
+            #     cuda_old_particles, cuda_new_particles, cuda_map,
+            #     np.int32(BLOCK_SIZE), np.int32(N), np.int32(n_centroids),
+            #     block=(THREADS, 1, 1)
+            # )
+
+            # cuda_modules["kmeans"].get_function("compute_centroids")(
+            #     cuda_old_particles, cuda_new_particles, cuda_map,
+            #     np.int32(N), np.int32(n_centroids),
+            #     block=(n_centroids, 1, 1)
+            # )
+
+            # centroids = np.zeros(MAX_LANDMARKS*2, dtype=np.float32)
+            # cuda.memcpy_dtoh(centroids, cuda_map)
+            # centroids = centroids.reshape((MAX_LANDMARKS, 2))[:n_centroids]
+            # print(centroids)
 
             ax[0].clear()
             ax[0].set_xlim([-5, 20])
@@ -248,7 +330,7 @@ if __name__ == "__main__":
 
 
 
-            centroids = compute_map(particles)
+            # centroids = compute_map(particles)
             plot_map(ax[1], centroids, color="orange", marker="o")
 
             for i, landmark in enumerate(centroids):
@@ -266,8 +348,7 @@ if __name__ == "__main__":
 
             cuda_modules["resample"].get_function("resample")(
                 cuda_old_particles, cuda_new_particles, cuda_indices,
-                np.int32(BLOCK_SIZE), np.int32(N),
-                block=(THREADS, 1, 1)
+                block=(THREADS, 1, 1),
             )
 
             cuda_old_particles, cuda_new_particles = cuda_new_particles, cuda_old_particles

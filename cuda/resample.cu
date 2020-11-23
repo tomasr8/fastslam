@@ -2,8 +2,7 @@
 #include <stdbool.h>
 #include <math.h>
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
-
+#define N_PARTICLES <<N_PARTICLES>>
 #define PARTICLE_SIZE <<PARTICLE_SIZE>>
 #define BLOCK_SIZE <<BLOCK_SIZE>>
 
@@ -19,7 +18,7 @@ __device__ float* get_particle(float *particles, int i) {
  * how to do it efficiently on the device and the CPU implementation is fast enough.
  */
 __global__ void resample(
-    float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)
+    float *old_particles, float *new_particles, int *idx)
 {
     // *idx is a mapping where i is the index of the new particle and
     // idx[i] is the index of the old particle.
@@ -27,7 +26,7 @@ __global__ void resample(
     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
 
     // assumes n_particles is a multiple of block_size
-    int start = thread_id*block_size;
+    int start = thread_id*BLOCK_SIZE;
 
     for(int i = 0; i < BLOCK_SIZE; i++) {
         float *old_particle = get_particle(old_particles, idx[start+i]);
@@ -39,7 +38,7 @@ __global__ void resample(
         new_particle[0] = old_particle[0];
         new_particle[1] = old_particle[1];
         new_particle[2] = old_particle[2];
-        new_particle[3] = 1.0/n_particles;
+        new_particle[3] = 1.0/N_PARTICLES;
         new_particle[4] = old_particle[4];
         new_particle[5] = old_particle[5];
 
@@ -56,6 +55,43 @@ __global__ void resample(
         }
     }
 }
+
+
+// __global__ void resample(
+//     float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)
+// {
+//     // *idx is a mapping where i is the index of the new particle and
+//     // idx[i] is the index of the old particle.
+
+//     int block_id = blockIdx.x + blockIdx.y * gridDim.x;
+//     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+
+//     float *old_particle = get_particle(old_particles, idx[thread_id]);
+//     float *new_particle = get_particle(new_particles, thread_id);
+
+//     int max_landmarks = (int)old_particle[4];
+//     int n_landmarks = (int)old_particle[5];
+
+//     new_particle[0] = old_particle[0];
+//     new_particle[1] = old_particle[1];
+//     new_particle[2] = old_particle[2];
+//     new_particle[3] = 1.0/n_particles;
+//     new_particle[4] = old_particle[4];
+//     new_particle[5] = old_particle[5];
+
+//     for(int k = 0; k < n_landmarks; k++) {
+//         new_particle[6+2*k] = old_particle[6+2*k];
+//         new_particle[6+2*k+1] = old_particle[6+2*k+1];
+
+//         new_particle[6+2*max_landmarks+4*k] = old_particle[6+2*max_landmarks+4*k];
+//         new_particle[6+2*max_landmarks+4*k+1] = old_particle[6+2*max_landmarks+4*k+1];
+//         new_particle[6+2*max_landmarks+4*k+2] = old_particle[6+2*max_landmarks+4*k+2];
+//         new_particle[6+2*max_landmarks+4*k+3] = old_particle[6+2*max_landmarks+4*k+3];
+
+//         new_particle[6+6*max_landmarks+k] = old_particle[6+6*max_landmarks+k];
+//     }
+// }
+
 
 // __global__ void resample(
 //     float *particles, float *new_particles, int block_size, int n_particles, float random)

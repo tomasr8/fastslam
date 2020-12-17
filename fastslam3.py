@@ -82,12 +82,12 @@ if __name__ == "__main__":
     MAX_FOV = (1)*np.pi
     DT = 0.5
     MISS_PROB = 0.05  # probability landmark in range will be missed
-    MAX_LANDMARKS = 150  # upper bound on the total number of landmarks in the environment
+    MAX_LANDMARKS = 250  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
-    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
+    landmarks = np.loadtxt("landmarks2.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
     movement_variance = [0.07, 0.07]
-    measurement_variance = [0.1, 0.1]
+    measurement_variance = [0.05, 0.05]
     measurement_covariance = np.float32([
         measurement_variance[0], 0,
         0, measurement_variance[1]

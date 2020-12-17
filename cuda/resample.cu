@@ -28,6 +28,7 @@ __global__ void resample(
     // assumes n_particles is a multiple of block_size
     int start = thread_id*BLOCK_SIZE;
 
+#pragma unroll
     for(int i = 0; i < BLOCK_SIZE; i++) {
         float *old_particle = get_particle(old_particles, idx[start+i]);
         float *new_particle = get_particle(new_particles, start+i);

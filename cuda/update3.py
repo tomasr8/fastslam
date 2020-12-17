@@ -25,8 +25,11 @@ def load_cuda_modules(**args):
     with open("cuda/predict.cu", "r") as f:
         predict = f.read()
 
-    with open("cuda/update.cu", "r") as f:
+    with open("cuda/update_no_mutual_exclusion.cu", "r") as f:
         update = f.read()
+    
+    # with open("cuda/update.cu", "r") as f:
+        # update = f.read()
 
     with open("cuda/rescale.cu", "r") as f:
         rescale = f.read()

@@ -265,9 +265,6 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     float *measurement_cov = measurements->measurement_cov;
     int n_measurements = measurements->n_measurements;
 
-    // int *in_range = (int*)malloc(250 * sizeof(int));
-    // int *n_matches = (int*)malloc(250 * sizeof(int));
-
     float x = particle[0];
     float y = particle[1];
     int n_landmarks = get_n_landmarks(particle);
@@ -275,11 +272,6 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     int n_in_range = 0;
     for(int i = 0; i < n_landmarks; i++) {
         n_matches[i] = 0;
-
-
-        // in_range[n_in_range] = i;
-        // n_in_range++;
-
         float *mean = get_mean(particle, i);
         if(in_sensor_range(particle, mean, range + 1, fov + 0.2)) {
             in_range[n_in_range] = i;
@@ -353,16 +345,16 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         }
     }
 
-    // for(int i = n_in_range - 1; i > 0; i--) {
-    //     int idx = in_range[i];
-    //     if(n_matches[idx] == 0) {
-    //         decrement_landmark_prob(particle, idx);
-    //         float prob = get_landmark_prob(particle, idx)[0];
-    //         if(prob < 0) {
-    //             remove_landmark(particle, idx);
-    //         }
-    //     } 
-    // }
+    for(int i = n_in_range - 1; i > 0; i--) {
+        int idx = in_range[i];
+        if(n_matches[idx] == 0) {
+            decrement_landmark_prob(particle, idx);
+            float prob = get_landmark_prob(particle, idx)[0];
+            if(prob < 0) {
+                remove_landmark(particle, idx);
+            }
+        } 
+    }
 }
 
 __global__ void update(

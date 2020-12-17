@@ -76,7 +76,7 @@ if __name__ == "__main__":
     PLOT = False
 
     # simulation
-    N = 8192  # number of particles
+    N = 512  # number of particles
     SIM_LENGTH = 200  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     MISS_PROB = 0.05  # probability landmark in range will be missed
     MAX_LANDMARKS = 250  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 50  # upper bound on the total number of simultaneous measurements
-    landmarks = np.loadtxt("landmarks2.txt").astype(np.float32)  # landmark positions
+    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
     movement_variance = [0.07, 0.07]
     measurement_variance = [0.05, 0.05]
@@ -130,6 +130,8 @@ if __name__ == "__main__":
 
     cuda_old_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
     cuda_new_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
+    scratchpad_block_size = 2 * THREADS * MAX_LANDMARKS
+    cuda_scratchpad = cuda.mem_alloc(4 * scratchpad_block_size)
     cuda_measurements = cuda.mem_alloc(4 * 2 * MAX_MEASUREMENTS)
     cuda_weights = cuda.mem_alloc(4 * N)
     cuda_indices = cuda.mem_alloc(4 * N)
@@ -192,7 +194,9 @@ if __name__ == "__main__":
         )
 
         cuda_modules["update"].get_function("update")(
-            cuda_old_particles, np.int32(BLOCK_SIZE), cuda_measurements,
+            cuda_old_particles, np.int32(BLOCK_SIZE),
+            cuda_scratchpad, np.int32(scratchpad_block_size),
+            cuda_measurements,
             np.int32(N), np.int32(len(visible_measurements)),
             cuda_cov, np.float32(THRESHOLD), np.float32(MAX_RANGE), np.float32(MAX_FOV),
             block=(THREADS, 1, 1)

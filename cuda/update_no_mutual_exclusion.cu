@@ -260,36 +260,54 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
 }
 
 
-__device__ void update_landmarks(float *particle, landmark_measurements *measurements, float range, float fov, float thresh)
+__device__ void update_landmarks(int id, float *particle, landmark_measurements *measurements, int *in_range, int *n_matches, float range, float fov, float thresh)
 {
     float *measurement_cov = measurements->measurement_cov;
     int n_measurements = measurements->n_measurements;
-    // float *measurements = measurements->measurements;
+
+    // int *in_range = (int*)malloc(250 * sizeof(int));
+    // int *n_matches = (int*)malloc(250 * sizeof(int));
 
     float x = particle[0];
     float y = particle[1];
     int n_landmarks = get_n_landmarks(particle);
 
+    int n_in_range = 0;
+    for(int i = 0; i < n_landmarks; i++) {
+        n_matches[i] = 0;
+
+
+        // in_range[n_in_range] = i;
+        // n_in_range++;
+
+        float *mean = get_mean(particle, i);
+        if(in_sensor_range(particle, mean, range + 1, fov + 0.2)) {
+            in_range[n_in_range] = i;
+            n_in_range++;
+        }
+    }
+
+    // if(id == 0) {
+    //     printf("in range: %d/%d \n", n_in_range, n_landmarks);
+    // }
+
     for(int i = 0; i < n_measurements; i++) {
         float best = -1;
         int best_idx = -1;
 
-        for(int j = 0; j < n_landmarks; j++) {
-            float dist = compute_dist(particle, j, measurements->measurements[i], measurement_cov);
+        for(int j = 0; j < n_in_range; j++) {
+            float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
 
             if(dist > thresh && dist > best) {
                 best = dist;
-                best_idx = j;
-            } else {
-                // if(in_sensor_range(particle, get_mean(particle, i), range, fov)) {
-                //     decrement_landmark_prob(particle, i);
-                //     float prob = get_landmark_prob(particle, i)[0];
-                //     if(prob < 0) {
-                //         remove_landmark(particle, i);
-                //     }
-                // }
+                best_idx = in_range[j];
             }
         }
+
+        if(best_idx != -1) {
+            n_matches[best_idx]++;
+        }
+
 
         if(best_idx != -1) {
             float *mean = get_mean(particle, best_idx);
@@ -334,10 +352,21 @@ __device__ void update_landmarks(float *particle, landmark_measurements *measure
             add_measurement_as_landmark(particle, measurements->measurements[i], measurement_cov);
         }
     }
+
+    // for(int i = n_in_range - 1; i > 0; i--) {
+    //     int idx = in_range[i];
+    //     if(n_matches[idx] == 0) {
+    //         decrement_landmark_prob(particle, idx);
+    //         float prob = get_landmark_prob(particle, idx)[0];
+    //         if(prob < 0) {
+    //             remove_landmark(particle, idx);
+    //         }
+    //     } 
+    // }
 }
 
 __global__ void update(
-    float *particles, int block_size, float measurements_array[][2], int n_particles, int n_measurements,
+    float *particles, int block_size, int *scratchpad_mem, int scratchpad_size, float measurements_array[][2], int n_particles, int n_measurements,
     float *measurement_cov, float threshold, float range, float fov)
 {
     // int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -348,6 +377,13 @@ __global__ void update(
 
     int block_id = blockIdx.x+ blockIdx.y * gridDim.x;
     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+
+    // int *in_range = (int*)malloc(250 * sizeof(int));
+    // int *n_matches = (int*)malloc(250 * sizeof(int));
+
+    int *scratchpad = scratchpad_mem + (thread_id * 500);
+    int *in_range = scratchpad;
+    int *n_matches = in_range + (250);
 
     landmark_measurements measurements;
     measurements.n_measurements = n_measurements;
@@ -368,6 +404,6 @@ __global__ void update(
             continue;
         }
 
-        update_landmarks(particle, &measurements, range, fov, threshold);
+        update_landmarks(particle_id, particle, &measurements, in_range, n_matches, range, fov, threshold);
     }
 }

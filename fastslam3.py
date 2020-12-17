@@ -73,10 +73,10 @@ if __name__ == "__main__":
     np.random.seed(2)
 
     # visualization
-    PLOT = False
+    PLOT = True
 
     # simulation
-    N = 2048  # number of particles
+    N = 512  # number of particles
     SIM_LENGTH = 200  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
@@ -84,10 +84,10 @@ if __name__ == "__main__":
     MISS_PROB = 0.05  # probability landmark in range will be missed
     MAX_LANDMARKS = 250  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 70  # upper bound on the total number of simultaneous measurements
-    landmarks = np.loadtxt("landmarks2.txt").astype(np.float32)  # landmark positions
+    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
     movement_variance = [0.07, 0.07]
-    measurement_variance = [0.1, 0.1]
+    measurement_variance = [0.05, 0.05]
     measurement_covariance = np.float32([
         measurement_variance[0], 0,
         0, measurement_variance[1]
@@ -117,8 +117,8 @@ if __name__ == "__main__":
 
 
     u = np.vstack((
-        np.tile([0.0, 0.0], (5, 1)),
-        np.tile([0.06, 0.7], (SIM_LENGTH-5, 1))
+        np.tile([0.0, 0.0], (15, 1)),
+        np.tile([0.06, 0.7], (SIM_LENGTH-15, 1))
     ))
 
     real_position_history = [start_position]
@@ -171,6 +171,8 @@ if __name__ == "__main__":
         print("=====")
         print(i)
         print("=====")
+
+        # plt.pause(5)
 
         start = time.time()
 
@@ -293,10 +295,12 @@ if __name__ == "__main__":
             # for n, i in enumerate(np.argsort(-FlatParticle.w(particles))[:n]):
             #     plot_map(ax[1], FlatParticle.get_landmarks(particles, i), color=cmap(n), marker=".")
 
-
+            # plt.pause(5)
 
             # centroids = compute_map(particles)
             plot_map(ax[1], centroids, color="orange", marker="o")
+            # plot_map(ax[1], FlatParticle.get_landmarks(particles, best), color="orange", marker="o")
+
 
             for i, landmark in enumerate(centroids):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)

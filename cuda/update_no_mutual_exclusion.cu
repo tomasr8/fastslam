@@ -75,7 +75,7 @@ __device__ void decrement_landmark_prob(float *particle, int i)
 {
     int max_landmarks = (int)particle[4];
     float *prob = (particle + 6 + 6*max_landmarks + i);
-    prob[0] -= 1.0;
+    prob[0] -= 2.0;
 }
 
 __device__ int get_n_landmarks(float *particle)
@@ -210,6 +210,16 @@ __device__ float pdf(float *x, float *mean, float* cov)
     return exp(-0.5 * (2*log2pi + maha + logdet));
 }
 
+__device__ float mahalanobis(float *u, float *v, float* cov) {
+    float inv[4] = { 0, 0, 0, 0 };
+    pinv(cov, inv);
+
+    float x = u[0] - v[0];
+    float y = u[1] - v[1];
+
+    return x*x*cov[0] + x*y*(cov[1] + cov[2]) + y*y*cov[3];
+}
+
 __device__ void add_measurements_as_landmarks(float *particle, landmark_measurements *measurements)
 {
     int n_measurements = measurements->n_measurements;
@@ -257,6 +267,7 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
     };
 
     return pdf(measurement_predicted, measurement, cov);
+    // return mahalanobis(measurement_predicted, measurement, cov);
 }
 
 
@@ -273,7 +284,9 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     for(int i = 0; i < n_landmarks; i++) {
         n_matches[i] = 0;
         float *mean = get_mean(particle, i);
-        if(in_sensor_range(particle, mean, range + 1, fov + 0.2)) {
+        // in_range[n_in_range] = i;
+        // n_in_range++;
+        if(in_sensor_range(particle, mean, range + 3, fov + 0.4)) {
             in_range[n_in_range] = i;
             n_in_range++;
         }
@@ -290,11 +303,15 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         for(int j = 0; j < n_in_range; j++) {
             float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
 
-            if(dist > thresh && dist > best) {
+            if(dist > thresh && dist > best && n_matches[in_range[j]] == 0) {
                 best = dist;
                 best_idx = in_range[j];
             }
         }
+
+        // if(id == 0) {
+        //     printf("best dist: %f, thresh: %f\n", best, thresh);
+        // }
 
         if(best_idx != -1) {
             n_matches[best_idx]++;
@@ -345,16 +362,16 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         }
     }
 
-    for(int i = n_in_range - 1; i > 0; i--) {
-        int idx = in_range[i];
-        if(n_matches[idx] == 0) {
-            decrement_landmark_prob(particle, idx);
-            float prob = get_landmark_prob(particle, idx)[0];
-            if(prob < 0) {
-                remove_landmark(particle, idx);
-            }
-        } 
-    }
+    // for(int i = n_in_range - 1; i > 0; i--) {
+    //     int idx = in_range[i];
+    //     if(n_matches[idx] == 0) {
+    //         decrement_landmark_prob(particle, idx);
+    //         float prob = get_landmark_prob(particle, idx)[0];
+    //         if(prob < 0) {
+    //             remove_landmark(particle, idx);
+    //         }
+    //     } 
+    // }
 }
 
 __global__ void update(

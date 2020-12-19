@@ -286,7 +286,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         float *mean = get_mean(particle, i);
         // in_range[n_in_range] = i;
         // n_in_range++;
-        if(in_sensor_range(particle, mean, range + 3, fov + 0.4)) {
+        if(in_sensor_range(particle, mean, range + 2, 2*M_PI /*fov + 0.6*/)) {
             in_range[n_in_range] = i;
             n_in_range++;
         }
@@ -303,7 +303,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         for(int j = 0; j < n_in_range; j++) {
             float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
 
-            if(dist > thresh && dist > best && n_matches[in_range[j]] == 0) {
+            if(dist > thresh && dist > best) {
                 best = dist;
                 best_idx = in_range[j];
             }

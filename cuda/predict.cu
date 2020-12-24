@@ -36,11 +36,9 @@ __global__ void init_rng(int seed)
 // Moves particles based on the control input and movement model.
 // In the future, this will probably be replaced to reflect the
 // actual sensors in the car e.g. IMU. 
-__global__ void predict(float *particles, int block_size, int n_particles, float ua, float ub, float sigma_a, float sigma_b, float dt) {
-    if(ua == 0.0 && ub == 0.0) {
-        return;
-    }
-
+__global__ void predict(float *particles, int block_size, int n_particles,
+    float x, float y, float theta, float sigma_x, float sigma_y, float sigma_theta) {
+    
     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
 
     int id_min = thread_id*block_size;
@@ -51,12 +49,9 @@ __global__ void predict(float *particles, int block_size, int n_particles, float
         // curand_normal() samples from standard normal
         // to get a general N(mu, sigma), we use Y = mu + sigma*X,
         // though in our case mu=0.
-        particle[2] += ua + sigma_a * curand_normal(states[thread_id]);
-        particle[2] = fmod(particle[2], (float)(2*M_PI));
-
-        float dist = (ub * dt) + sigma_b * curand_normal(states[thread_id]);
-        particle[0] += cos(particle[2]) * dist;
-        particle[1] += sin(particle[2]) * dist;
+        particle[0] = x + sigma_x * curand_normal(states[thread_id]);
+        particle[1] = y + sigma_y * curand_normal(states[thread_id]);
+        particle[2] = theta + sigma_theta * curand_normal(states[thread_id]);
     }
 }
 }

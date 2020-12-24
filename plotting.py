@@ -84,12 +84,12 @@ def plot_confidence_ellipse(ax, landmark, cov, n_std=1.0, edgecolor='red'):
     return ax.add_patch(ellipse)
 
 
-def plot_sensor_fov(ax, vehicle, max_range, max_fov, color='gray', alpha=0.3):
-    thetas = np.linspace(vehicle.position[2] - max_fov/2, vehicle.position[2] + max_fov/2)
+def plot_sensor_fov(ax, pose, max_range, max_fov, color='gray', alpha=0.3):
+    thetas = np.linspace(pose[2] - max_fov/2, pose[2] + max_fov/2)
     xs = max_range * np.cos(thetas)
     ys = max_range * np.sin(thetas)
 
-    xs += vehicle.position[0]
-    ys += vehicle.position[1]
+    xs += pose[0]
+    ys += pose[1]
 
-    ax.fill(np.append(xs, vehicle.position[0]), np.append(ys, vehicle.position[1]), color=color, alpha=alpha)
+    ax.fill(np.append(xs, pose[0]), np.append(ys, pose[1]), color=color, alpha=alpha)

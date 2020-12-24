@@ -80,13 +80,12 @@ if __name__ == "__main__":
     SIM_LENGTH = 200  # number of simulation steps
     MAX_RANGE = 5  # max range of sensor
     MAX_FOV = (1)*np.pi
-    DT = 0.5
     MISS_PROB = 0.05  # probability landmark in range will be missed
     MAX_LANDMARKS = 250  # upper bound on the total number of landmarks in the environment
     MAX_MEASUREMENTS = 70  # upper bound on the total number of simultaneous measurements
-    landmarks = np.loadtxt("landmarks2.txt").astype(np.float32)  # landmark positions
+    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
     start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
-    movement_variance = [0.07, 0.07]
+    imu_variance = [0.07, 0.07, 0.07]
     measurement_variance = [0.1, 0.1]
     measurement_covariance = np.float32([
         measurement_variance[0], 0,
@@ -115,18 +114,19 @@ if __name__ == "__main__":
         ax[0].axis('scaled')
         ax[1].axis('scaled')
 
+    size = 100
+    imu = np.zeros((size, 3))
+    imu[:, 0] = np.linspace(2, 10, size)
+    imu[:, 1] = np.linspace(2, 10, size)
+    imu[:, 2] = 0
 
-    u = np.vstack((
-        np.tile([0.0, 0.0], (15, 1)),
-        np.tile([0.06, 0.7], (SIM_LENGTH-15, 1))
-    ))
 
     real_position_history = [start_position]
     predicted_position_history = [start_position]
     weights_history = [FlatParticle.neff(particles)]
 
-    vehicle = Vehicle(start_position, movement_variance, dt=DT)
-    sensor = Sensor(vehicle, landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, MISS_PROB, 0)
+    # vehicle = Vehicle(start_position, movement_variance, dt=DT)
+    sensor = Sensor(landmarks, [], measurement_variance, MAX_RANGE, MAX_FOV, MISS_PROB, 0)
 
     cuda_old_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
     cuda_new_particles = cuda.mem_alloc(4 * N * (6 + 7*MAX_LANDMARKS))
@@ -165,9 +165,7 @@ if __name__ == "__main__":
     ktime = []
     t = time.time()
 
-    # plt.pause(5)
-
-    for i in range(u.shape[0]):
+    for i in range(imu.shape[0]):
         print("=====")
         print(i)
         print("=====")
@@ -176,10 +174,10 @@ if __name__ == "__main__":
 
         start = time.time()
 
-        vehicle.move_noisy(u[i])
-        real_position_history.append(vehicle.position)
+        pose = imu[i]
+        real_position_history.append(pose)
 
-        measurements = sensor.get_noisy_measurements()
+        measurements = sensor.get_noisy_measurements(pose)
         visible_measurements = measurements["observed"]
         missed_landmarks = measurements["missed"]
         out_of_range_landmarks = measurements["outOfRange"]
@@ -189,9 +187,8 @@ if __name__ == "__main__":
 
         cuda_modules["predict"].get_function("predict")(
             cuda_old_particles, np.int32(BLOCK_SIZE), np.int32(N),
-            np.float32(u[i, 0]), np.float32(u[i, 1]),
-            np.float32(movement_variance[0]), np.float32(movement_variance[1]),
-            np.float32(DT),
+            np.float32(pose[0]), np.float32(pose[1]), np.float32(pose[2]),
+            np.float32(imu_variance[0]), np.float32(imu_variance[1]), np.float32(imu_variance[2]),
             block=(THREADS, 1, 1)
         )
 
@@ -265,11 +262,11 @@ if __name__ == "__main__":
             ax[0].set_xlim([-5, 20])
             ax[0].set_ylim([-5, 20])
 
-            plot_sensor_fov(ax[0], vehicle, MAX_RANGE, MAX_FOV)
-            plot_sensor_fov(ax[1], vehicle, MAX_RANGE, MAX_FOV)
+            plot_sensor_fov(ax[0], pose, MAX_RANGE, MAX_FOV)
+            plot_sensor_fov(ax[1], pose, MAX_RANGE, MAX_FOV)
 
             if(visible_measurements.size != 0):
-                plot_connections(ax[0], vehicle.position, visible_measurements + vehicle.position[:2])
+                plot_connections(ax[0], pose, visible_measurements + pose[:2])
 
             plot_landmarks(ax[0], landmarks, color="blue", zorder=100)
             plot_landmarks(ax[0], out_of_range_landmarks, color="black", zorder=101)
@@ -277,7 +274,7 @@ if __name__ == "__main__":
             plot_history(ax[0], predicted_position_history, color='orange')
             plot_particles_weight(ax[0], particles)
             if(visible_measurements.size != 0):
-                plot_measurement(ax[0], vehicle.position[:2], visible_measurements, color="orange", zorder=103)
+                plot_measurement(ax[0], pose[:2], visible_measurements, color="orange", zorder=103)
 
             plot_landmarks(ax[0], missed_landmarks, color="red", zorder=102)
 

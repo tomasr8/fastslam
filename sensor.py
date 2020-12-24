@@ -1,8 +1,7 @@
 import numpy as np
 
 class Sensor(object):
-    def __init__(self, vehicle, landmarks, phantom_landmarks, measurement_variance, range, fov, miss_prob, phantom_prob):
-        self.vehicle = vehicle
+    def __init__(self, landmarks, phantom_landmarks, measurement_variance, range, fov, miss_prob, phantom_prob):
         self.landmarks = landmarks
         self.phantom_landmarks = phantom_landmarks
         self.measurement_variance = measurement_variance
@@ -23,7 +22,7 @@ class Sensor(object):
         return vector_to_landmark
 
 
-    def get_noisy_measurements(self):
+    def get_noisy_measurements(self, pose):
         measurements = {
             "observed": np.zeros((0, 2), dtype=np.float32),
             "missed": np.zeros((0, 2), dtype=np.float32),
@@ -32,13 +31,13 @@ class Sensor(object):
             # "phantomNotSeen": np.zeros((0, 2), dtype=np.float32),
         }
 
-        position = self.vehicle.position[:2]
+        position = pose[:2]
 
         for i, landmark in enumerate(self.landmarks):
             z = self.__get_noisy_measurement(position, landmark)
 
             coin_toss = np.random.uniform(0, 1)
-            if self.__in_sensor_range(landmark):
+            if self.__in_sensor_range(landmark, pose):
                 if coin_toss > self.miss_prob:
                     measurements["observed"] = np.vstack((measurements["observed"], [z]))
                 else:
@@ -63,8 +62,8 @@ class Sensor(object):
         return measurements
 
 
-    def __in_sensor_range(self, landmark):
-        x, y, theta = self.vehicle.position
+    def __in_sensor_range(self, landmark, pose):
+        x, y, theta = pose
 
         va = [landmark[0] - x, landmark[1] - y]
         vb = [self.range * np.cos(theta), self.range * np.sin(theta)]

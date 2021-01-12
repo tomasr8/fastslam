@@ -57,6 +57,84 @@ __global__ void resample(
     }
 }
 
+// __global__ void resample_inplace(
+//     float *particles, int *ancestors)
+// {
+//     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
+//     int start = thread_id*BLOCK_SIZE;
+
+//     #pragma unroll
+//     for(int i = 0; i < BLOCK_SIZE; i++) {
+//         int j = start + i;
+
+//         if(j == ancestors[j]) {
+//             continue;
+//         }
+    
+//         float *source = get_particle(particles, ancestors[j]);
+//         float *dest = get_particle(particles, j);
+    
+//         int max_landmarks = (int)source[4];
+//         int n_landmarks = (int)source[5];
+    
+//         dest[0] = source[0];
+//         dest[1] = source[1];
+//         dest[2] = source[2];
+//         dest[3] = 1.0/N_PARTICLES;
+//         dest[4] = source[4];
+//         dest[5] = source[5];
+    
+//         for(int k = 0; k < n_landmarks; k++) {
+//             dest[6+2*k] = source[6+2*k];
+//             dest[6+2*k+1] = source[6+2*k+1];
+    
+//             dest[6+2*max_landmarks+4*k] = source[6+2*max_landmarks+4*k];
+//             dest[6+2*max_landmarks+4*k+1] = source[6+2*max_landmarks+4*k+1];
+//             dest[6+2*max_landmarks+4*k+2] = source[6+2*max_landmarks+4*k+2];
+//             dest[6+2*max_landmarks+4*k+3] = source[6+2*max_landmarks+4*k+3];
+    
+//             dest[6+6*max_landmarks+k] = source[6+6*max_landmarks+k];
+//         }
+
+//     }
+    
+// }
+
+
+ __global__ void resample_inplace(
+    float *particles, int *ancestors)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    if(i == ancestors[i]) {
+        return;
+    }
+
+    float *source = get_particle(particles, ancestors[i]);
+    float *dest = get_particle(particles, i);
+
+    int max_landmarks = (int)source[4];
+    int n_landmarks = (int)source[5];
+
+    dest[0] = source[0];
+    dest[1] = source[1];
+    dest[2] = source[2];
+    dest[3] = 1.0/N_PARTICLES;
+    dest[4] = source[4];
+    dest[5] = source[5];
+
+    for(int k = 0; k < n_landmarks; k++) {
+        dest[6+2*k] = source[6+2*k];
+        dest[6+2*k+1] = source[6+2*k+1];
+
+        dest[6+2*max_landmarks+4*k] = source[6+2*max_landmarks+4*k];
+        dest[6+2*max_landmarks+4*k+1] = source[6+2*max_landmarks+4*k+1];
+        dest[6+2*max_landmarks+4*k+2] = source[6+2*max_landmarks+4*k+2];
+        dest[6+2*max_landmarks+4*k+3] = source[6+2*max_landmarks+4*k+3];
+
+        dest[6+6*max_landmarks+k] = source[6+6*max_landmarks+k];
+    }
+}
 
 // __global__ void resample(
 //     float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)

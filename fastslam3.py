@@ -76,22 +76,30 @@ if __name__ == "__main__":
     PLOT = True
 
     # simulation
-    N = 512  # number of particles
+    N = 1024  # number of particles
     SIM_LENGTH = 200  # number of simulation steps
-    MAX_RANGE = 5  # max range of sensor
+    MAX_RANGE = 10  # max range of sensor
     MAX_FOV = (1)*np.pi
     MISS_PROB = 0.05  # probability landmark in range will be missed
     MAX_LANDMARKS = 250  # upper bound on the total number of landmarks in the environment
-    MAX_MEASUREMENTS = 70  # upper bound on the total number of simultaneous measurements
-    landmarks = np.loadtxt("landmarks.txt").astype(np.float32)  # landmark positions
-    start_position = np.array([8, 3, 0], dtype=np.float32)  # starting position of the car
-    imu_variance = [0.07, 0.07, 0.07]
-    measurement_variance = [0.1, 0.1]
+    MAX_MEASUREMENTS = 20  # upper bound on the total number of simultaneous measurements
+    odom_variance = [0.1, 0.1, 0.05]
+    measurement_variance = [0.2, 0.2]
     measurement_covariance = np.float32([
         measurement_variance[0], 0,
         0, measurement_variance[1]
     ])
-    THRESHOLD = 0.2
+    THRESHOLD = 0.01 
+
+    landmarks = np.load("fsonline/track.npy").astype(np.float32)  # landmark positions
+    landmarks = landmarks[:, [0, 1]]
+    odom = np.load("fsonline/odom.npy")
+
+    odom = odom[2000:]
+    odom = odom[::10]
+    odom[:, 2] += np.pi/2
+
+    start_position = np.array(odom[0], dtype=np.float32)  # starting position of the car
 
     # GPU
     context.set_limit(limit.MALLOC_HEAP_SIZE, 100000 * 1024)  # heap size available to the GPU threads
@@ -106,19 +114,9 @@ if __name__ == "__main__":
     print("Particles memory:", particles.nbytes / 1024, "KB")
 
     if PLOT:
-        fig, ax = plt.subplots(1, 2, figsize=(10, 5))
-        ax[0].set_xlim([-5, 20])
-        ax[0].set_ylim([-5, 20])
-        ax[1].set_xlim([-5, 20])
-        ax[1].set_ylim([-5, 20])
+        fig, ax = plt.subplots(2, 1, figsize=(10, 5))
         ax[0].axis('scaled')
         ax[1].axis('scaled')
-
-    size = 100
-    imu = np.zeros((size, 3))
-    imu[:, 0] = np.linspace(2, 10, size)
-    imu[:, 1] = np.linspace(2, 10, size)
-    imu[:, 2] = 0
 
 
     real_position_history = [start_position]
@@ -147,7 +145,8 @@ if __name__ == "__main__":
         THREADS=THREADS,
         PARTICLE_SIZE=PARTICLE_SIZE,
         N_PARTICLES=N,
-        BLOCK_SIZE=BLOCK_SIZE
+        BLOCK_SIZE=BLOCK_SIZE,
+        SCRATCHPAD_SIZE=scratchpad_block_size
     )
 
     cuda.memcpy_htod(cuda_cov, measurement_covariance)
@@ -165,16 +164,18 @@ if __name__ == "__main__":
     ktime = []
     t = time.time()
 
-    for i in range(imu.shape[0]):
-        print("=====")
-        print(i)
-        print("=====")
+    print("starting..")
 
-        # plt.pause(5)
+    for i in range(odom.shape[0]):
+        # print("=====")
+        # print(i)
+        # print("=====")
+
+        # plt.pause(1)
 
         start = time.time()
 
-        pose = imu[i]
+        pose = odom[i]
         real_position_history.append(pose)
 
         measurements = sensor.get_noisy_measurements(pose)
@@ -182,13 +183,18 @@ if __name__ == "__main__":
         missed_landmarks = measurements["missed"]
         out_of_range_landmarks = measurements["outOfRange"]
 
+        measured_pose = [
+            pose[0] + np.random.normal(0, odom_variance[0]),
+            pose[1] + np.random.normal(0, odom_variance[1]),
+            pose[2] + np.random.normal(0, odom_variance[2])
+        ]
 
         cuda.memcpy_htod(cuda_measurements, visible_measurements)
 
         cuda_modules["predict"].get_function("predict")(
             cuda_old_particles, np.int32(BLOCK_SIZE), np.int32(N),
-            np.float32(pose[0]), np.float32(pose[1]), np.float32(pose[2]),
-            np.float32(imu_variance[0]), np.float32(imu_variance[1]), np.float32(imu_variance[2]),
+            np.float32(measured_pose[0]), np.float32(measured_pose[1]), np.float32(measured_pose[2]),
+            np.float32(odom_variance[0]), np.float32(odom_variance[1]), np.float32(odom_variance[2]),
             block=(THREADS, 1, 1)
         )
 
@@ -197,7 +203,7 @@ if __name__ == "__main__":
             cuda_scratchpad, np.int32(scratchpad_block_size),
             cuda_measurements,
             np.int32(N), np.int32(len(visible_measurements)),
-            cuda_cov, np.float32(THRESHOLD), np.float32(MAX_RANGE), np.float32(MAX_FOV),
+            cuda_cov, np.float32(THRESHOLD), np.float32(MAX_RANGE), np.float32(MAX_FOV), np.int32(MAX_LANDMARKS),
             block=(THREADS, 1, 1)
         )
 
@@ -227,40 +233,47 @@ if __name__ == "__main__":
         predicted_position_history.append(host_mean_position.copy())
 
 
-        cuda_modules["kmeans"].get_function("initialize_centroids")(
-            cuda_old_particles, cuda_weights, np.int32(N), cuda_map, cuda_map_size,
-            block=(1, 1, 1)
-        )
+        # cuda_modules["kmeans"].get_function("initialize_centroids")(
+        #     cuda_old_particles, cuda_weights, np.int32(N), cuda_map, cuda_map_size,
+        #     block=(1, 1, 1)
+        # )
 
-        n_centroids = np.zeros(1, dtype=np.int32)
-        cuda.memcpy_dtoh(n_centroids, cuda_map_size)
-        n_centroids = int(n_centroids[0])
-        # print(n_centroids)
+        # n_centroids = np.zeros(1, dtype=np.int32)
+        # cuda.memcpy_dtoh(n_centroids, cuda_map_size)
+        # n_centroids = int(n_centroids[0])
 
-        cuda_modules["kmeans"].get_function("relabel")(
-            cuda_old_particles, cuda_new_particles, cuda_map,
-            np.int32(BLOCK_SIZE), np.int32(N), np.int32(n_centroids),
-            block=(THREADS, 1, 1), grid=(N//THREADS, 1, 1)
-        )
+        # cuda_modules["kmeans"].get_function("relabel")(
+        #     cuda_old_particles, cuda_new_particles, cuda_map,
+        #     np.int32(BLOCK_SIZE), np.int32(N), np.int32(n_centroids),
+        #     block=(THREADS, 1, 1), grid=(N//THREADS, 1, 1)
+        # )
 
-        cuda_modules["kmeans"].get_function("compute_centroids")(
-            cuda_old_particles, cuda_new_particles, cuda_map,
-            np.int32(N), np.int32(n_centroids),
-            block=(n_centroids, 1, 1)
-        )
+        # cuda_modules["kmeans"].get_function("compute_centroids")(
+        #     cuda_old_particles, cuda_new_particles, cuda_map,
+        #     np.int32(N), np.int32(n_centroids),
+        #     block=(n_centroids, 1, 1)
+        # )
 
-        centroids = np.zeros(MAX_LANDMARKS*2, dtype=np.float32)
-        cuda.memcpy_dtoh(centroids, cuda_map)
-        centroids = centroids.reshape((MAX_LANDMARKS, 2))[:n_centroids]
-
-
+        # centroids = np.zeros(MAX_LANDMARKS*2, dtype=np.float32)
+        # cuda.memcpy_dtoh(centroids, cuda_map)
+        # centroids = centroids.reshape((MAX_LANDMARKS, 2))[:n_centroids]
 
         if PLOT:
             cuda.memcpy_dtoh(particles, cuda_old_particles)
 
             ax[0].clear()
-            ax[0].set_xlim([-5, 20])
-            ax[0].set_ylim([-5, 20])
+            ax[1].clear()
+            # ax[0].set_xlim([pose[0]-10, pose[0]+10])
+            # ax[0].set_ylim([pose[1]-10, pose[1]+10])
+            # ax[1].set_xlim([pose[0]-10, pose[0]+10])
+            # ax[1].set_ylim([pose[1]-10, pose[1]+10])
+
+            ax[0].set_xlim([-160, 10])
+            ax[0].set_ylim([-30, 50])
+            ax[1].set_xlim([-160, 10])
+            ax[1].set_ylim([-30, 50])
+            ax[0].set_axis_off()
+            ax[1].set_axis_off()
 
             plot_sensor_fov(ax[0], pose, MAX_RANGE, MAX_FOV)
             plot_sensor_fov(ax[1], pose, MAX_RANGE, MAX_FOV)
@@ -278,9 +291,6 @@ if __name__ == "__main__":
 
             plot_landmarks(ax[0], missed_landmarks, color="red", zorder=102)
 
-            ax[1].clear()
-            ax[1].set_xlim([-5, 20])
-            ax[1].set_ylim([-5, 20])
             best = np.argmax(FlatParticle.w(particles))
             plot_landmarks(ax[1], landmarks, color="black")
             # plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
@@ -295,14 +305,17 @@ if __name__ == "__main__":
             # plt.pause(5)
 
             # centroids = compute_map(particles)
-            plot_map(ax[1], centroids, color="orange", marker="o")
-            # plot_map(ax[1], FlatParticle.get_landmarks(particles, best), color="orange", marker="o")
+            # plot_map(ax[1], centroids, color="orange", marker="o")
 
+            # for i, landmark in enumerate(centroids):
+            #     plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            for i, landmark in enumerate(centroids):
+            plot_map(ax[1], FlatParticle.get_landmarks(particles, best), color="orange", marker="o")
+
+            for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            plt.pause(0.2)
+            plt.pause(0.01)
 
 
         if FlatParticle.neff(host_weights) < 0.6*N:

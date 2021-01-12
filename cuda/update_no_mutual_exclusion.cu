@@ -42,6 +42,17 @@ __device__ bool in_sensor_range(float *position, float *landmark, float range, f
     }
 }
 
+__device__ bool in_large_sensor_range(float *position, float *landmark, float range) {
+    float x = position[0];
+    float y = position[1];
+    float lx = landmark[0];
+    float ly = landmark[1];
+
+    float dist_sq = (lx-x)*(lx-x) + (ly-y)*(ly-y);
+
+    return dist_sq < range*range;
+}
+
 __device__ float* get_particle(float *particles, int i) {
     int max_landmarks = (int)particles[4];
     return (particles + (6 + 7*max_landmarks)*i);
@@ -75,7 +86,7 @@ __device__ void decrement_landmark_prob(float *particle, int i)
 {
     int max_landmarks = (int)particle[4];
     float *prob = (particle + 6 + 6*max_landmarks + i);
-    prob[0] -= 2.0;
+    prob[0] -= 1.0;
 }
 
 __device__ int get_n_landmarks(float *particle)
@@ -174,21 +185,12 @@ __device__ void pinv(float *A, float *B)
     float c = A[2];
     float d = A[3];
 
-    float e = a*a + c*c;
-    float f = a*b + c*d;
-    float g = a*b + c*d;
-    float h = b*b + d*d;
+    float scalar = 1/(a*d - b*c);
 
-    float scalar = 1/(e*h - f*g);
-    float e_i = scalar * h;
-    float f_i = scalar * (-f);
-    float g_i = scalar * (-g);
-    float h_i = scalar * e;
-
-    B[0] = e_i*a + f_i*b;
-    B[1] = e_i*c + f_i*d;
-    B[2] = g_i*a + h_i*b;
-    B[3] = g_i*c + h_i*d;
+    B[0] = scalar * d;
+    B[1] = scalar * (-b);
+    B[2] = scalar * (-c);
+    B[3] = scalar * a;
 }
 
 __device__ float pdf(float *x, float *mean, float* cov)
@@ -286,7 +288,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         float *mean = get_mean(particle, i);
         // in_range[n_in_range] = i;
         // n_in_range++;
-        if(in_sensor_range(particle, mean, range + 2, 2*M_PI /*fov + 0.6*/)) {
+        if(in_large_sensor_range(particle, mean, range + 2)) {
             in_range[n_in_range] = i;
             n_in_range++;
         }
@@ -374,9 +376,11 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     // }
 }
 
+// __shared__ int scratchpad_mem[<<SCRATCHPAD_SIZE>>];
+
 __global__ void update(
     float *particles, int block_size, int *scratchpad_mem, int scratchpad_size, float measurements_array[][2], int n_particles, int n_measurements,
-    float *measurement_cov, float threshold, float range, float fov)
+    float *measurement_cov, float threshold, float range, float fov, int max_landmarks)
 {
     // int i = threadIdx.x + blockIdx.x * blockDim.x;
 
@@ -384,15 +388,12 @@ __global__ void update(
         return;
     }
 
-    int block_id = blockIdx.x+ blockIdx.y * gridDim.x;
+    int block_id = blockIdx.x + blockIdx.y * gridDim.x;
     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
 
-    // int *in_range = (int*)malloc(250 * sizeof(int));
-    // int *n_matches = (int*)malloc(250 * sizeof(int));
-
-    int *scratchpad = scratchpad_mem + (thread_id * 500);
+    int *scratchpad = scratchpad_mem + (2 * thread_id * max_landmarks);
     int *in_range = scratchpad;
-    int *n_matches = in_range + (250);
+    int *n_matches = in_range + max_landmarks;
 
     landmark_measurements measurements;
     measurements.n_measurements = n_measurements;

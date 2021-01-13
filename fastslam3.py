@@ -161,6 +161,7 @@ if __name__ == "__main__":
     tottime = []
     resample_time = []
     ktime = []
+    measurement_time = []
     t = time.time()
 
     print("starting..")
@@ -175,6 +176,7 @@ if __name__ == "__main__":
         pose = odom[i]
         real_position_history.append(pose)
 
+        measurement_time_start = time.time()
         measurements = sensor.get_noisy_measurements(pose)
         visible_measurements = measurements["observed"]
         missed_landmarks = measurements["missed"]
@@ -185,6 +187,8 @@ if __name__ == "__main__":
             pose[1] + np.random.normal(0, odom_variance[1]),
             pose[2] + np.random.normal(0, odom_variance[2])
         ]
+
+        measurement_time.append(time.time() - measurement_time_start)
 
         cuda.memcpy_htod(cuda_measurements, visible_measurements)
 
@@ -360,6 +364,12 @@ if __name__ == "__main__":
     print("TOTAL: {:.5f}s".format((time.time() - t)))
 
     print("Mean total compute time: {:.5f}, stdev: {:.5f}".format(np.mean(tottime), np.std(tottime)))
+
+
+    diff = [tot - measurement for tot, measurement in zip(tottime, measurement_time)]
+
+    print("Mean total compute time (w/o measurement): {:.5f}, stdev: {:.5f}".format(np.mean(diff), np.std(diff)))
+
     # print("Mean CUDA compute time: {:.5f}, stdev: {:.5f}".format(np.mean(cuda_time) / 1000, np.std(cuda_time) / 1000))
     print("Mean resample time: {:.5f}, stdev: {:.5f}".format(np.mean(resample_time), np.std(resample_time)))
 

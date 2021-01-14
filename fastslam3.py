@@ -168,7 +168,7 @@ if __name__ == "__main__":
 
     for i in range(odom.shape[0]):
         # print("=====")
-        # print(i)
+        print(i)
         # print("=====")
 
         start = time.time()
@@ -318,11 +318,13 @@ if __name__ == "__main__":
 
             plt.pause(0.01)
 
+        # print(FlatParticle.neff(host_weights))
 
         if FlatParticle.neff(host_weights) < 0.6*N:
-            # print("resampling..")
+            # print("resample")
             s = time.time()
             ancestors = systematic_resample(host_weights)
+            # print(ancestors)
             resample_time.append(time.time() - s)
             cuda.memcpy_htod(cuda_ancestors, ancestors)
 
@@ -343,6 +345,11 @@ if __name__ == "__main__":
                 np.int32(N//THREADS), np.int32(N),
                 block=(THREADS, 1, 1)
             )
+
+            # permuted = np.zeros_like(ancestors)
+            # cuda.memcpy_dtoh(permuted, cuda_ancestors)
+
+            # print("permuted", permuted)
 
             cuda_modules["resample"].get_function("resample_inplace")(
                 cuda_particles, cuda_ancestors,

@@ -1,0 +1,10 @@
+implement the reference permute algo
+✅ check speed up vs not inplace
+✅ backport - check inplace works
+✅ implement parallel resampling
+✅ resample in double precision
+✅ stats
+coalesced inplace copy
+fsonline - model
+squish particles
+run that shit on linux

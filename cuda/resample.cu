@@ -4,104 +4,16 @@
 
 #define N_PARTICLES <<N_PARTICLES>>
 #define PARTICLE_SIZE <<PARTICLE_SIZE>>
-#define BLOCK_SIZE <<BLOCK_SIZE>>
+#define THREADS <<THREADS>>
 
 __device__ float* get_particle(float *particles, int i) {
     return (particles + PARTICLE_SIZE*i);
 }
 
 /*
- * Copies particles from one memory block to another based on indices
- * given by systematic resampling.
- *
- * The systematic resampling is handled on the host. I haven't yet figured out
- * how to do it efficiently on the device and the CPU implementation is fast enough.
+ * Copies particles in place given by the ancestor vector
  */
-__global__ void resample(
-    float *old_particles, float *new_particles, int *idx)
-{
-    // *idx is a mapping where i is the index of the new particle and
-    // idx[i] is the index of the old particle.
-
-    int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-
-    // assumes n_particles is a multiple of block_size
-    int start = thread_id*BLOCK_SIZE;
-
-#pragma unroll
-    for(int i = 0; i < BLOCK_SIZE; i++) {
-        float *old_particle = get_particle(old_particles, idx[start+i]);
-        float *new_particle = get_particle(new_particles, start+i);
-
-        int max_landmarks = (int)old_particle[4];
-        int n_landmarks = (int)old_particle[5];
-
-        new_particle[0] = old_particle[0];
-        new_particle[1] = old_particle[1];
-        new_particle[2] = old_particle[2];
-        new_particle[3] = 1.0/N_PARTICLES;
-        new_particle[4] = old_particle[4];
-        new_particle[5] = old_particle[5];
-
-        for(int k = 0; k < n_landmarks; k++) {
-            new_particle[6+2*k] = old_particle[6+2*k];
-            new_particle[6+2*k+1] = old_particle[6+2*k+1];
-
-            new_particle[6+2*max_landmarks+4*k] = old_particle[6+2*max_landmarks+4*k];
-            new_particle[6+2*max_landmarks+4*k+1] = old_particle[6+2*max_landmarks+4*k+1];
-            new_particle[6+2*max_landmarks+4*k+2] = old_particle[6+2*max_landmarks+4*k+2];
-            new_particle[6+2*max_landmarks+4*k+3] = old_particle[6+2*max_landmarks+4*k+3];
-
-            new_particle[6+6*max_landmarks+k] = old_particle[6+6*max_landmarks+k];
-        }
-    }
-}
-
-// __global__ void resample_inplace(
-//     float *particles, int *ancestors)
-// {
-//     int thread_id = threadIdx.x + blockIdx.x * blockDim.x;
-//     int start = thread_id*BLOCK_SIZE;
-
-//     #pragma unroll
-//     for(int i = 0; i < BLOCK_SIZE; i++) {
-//         int j = start + i;
-
-//         if(j == ancestors[j]) {
-//             continue;
-//         }
-    
-//         float *source = get_particle(particles, ancestors[j]);
-//         float *dest = get_particle(particles, j);
-    
-//         int max_landmarks = (int)source[4];
-//         int n_landmarks = (int)source[5];
-    
-//         dest[0] = source[0];
-//         dest[1] = source[1];
-//         dest[2] = source[2];
-//         dest[3] = 1.0/N_PARTICLES;
-//         dest[4] = source[4];
-//         dest[5] = source[5];
-    
-//         for(int k = 0; k < n_landmarks; k++) {
-//             dest[6+2*k] = source[6+2*k];
-//             dest[6+2*k+1] = source[6+2*k+1];
-    
-//             dest[6+2*max_landmarks+4*k] = source[6+2*max_landmarks+4*k];
-//             dest[6+2*max_landmarks+4*k+1] = source[6+2*max_landmarks+4*k+1];
-//             dest[6+2*max_landmarks+4*k+2] = source[6+2*max_landmarks+4*k+2];
-//             dest[6+2*max_landmarks+4*k+3] = source[6+2*max_landmarks+4*k+3];
-    
-//             dest[6+6*max_landmarks+k] = source[6+6*max_landmarks+k];
-//         }
-
-//     }
-    
-// }
-
-
- __global__ void resample_inplace(
+ __global__ void copy_inplace(
     float *particles, int *ancestors)
 {
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -119,7 +31,7 @@ __global__ void resample(
     dest[0] = source[0];
     dest[1] = source[1];
     dest[2] = source[2];
-    dest[3] = 1.0/N_PARTICLES;
+    dest[3] = source[3];
     dest[4] = source[4];
     dest[5] = source[5];
 
@@ -136,92 +48,67 @@ __global__ void resample(
     }
 }
 
-// __global__ void resample(
-//     float *old_particles, float *new_particles, int *idx, int block_size, int n_particles)
-// {
-//     // *idx is a mapping where i is the index of the new particle and
-//     // idx[i] is the index of the old particle.
 
-//     int block_id = blockIdx.x + blockIdx.y * gridDim.x;
-//     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+ __global__ void copy_inplace_coalesced(
+    float *particles, int *ancestors)
+{
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
 
-//     float *old_particle = get_particle(old_particles, idx[thread_id]);
-//     float *new_particle = get_particle(new_particles, thread_id);
+    for(int k = 0; k < N_PARTICLES; k++) {
+        float *source = get_particle(particles, ancestors[i]);
+        float *dest = get_particle(particles, i);
 
-//     int max_landmarks = (int)old_particle[4];
-//     int n_landmarks = (int)old_particle[5];
-
-//     new_particle[0] = old_particle[0];
-//     new_particle[1] = old_particle[1];
-//     new_particle[2] = old_particle[2];
-//     new_particle[3] = 1.0/n_particles;
-//     new_particle[4] = old_particle[4];
-//     new_particle[5] = old_particle[5];
-
-//     for(int k = 0; k < n_landmarks; k++) {
-//         new_particle[6+2*k] = old_particle[6+2*k];
-//         new_particle[6+2*k+1] = old_particle[6+2*k+1];
-
-//         new_particle[6+2*max_landmarks+4*k] = old_particle[6+2*max_landmarks+4*k];
-//         new_particle[6+2*max_landmarks+4*k+1] = old_particle[6+2*max_landmarks+4*k+1];
-//         new_particle[6+2*max_landmarks+4*k+2] = old_particle[6+2*max_landmarks+4*k+2];
-//         new_particle[6+2*max_landmarks+4*k+3] = old_particle[6+2*max_landmarks+4*k+3];
-
-//         new_particle[6+6*max_landmarks+k] = old_particle[6+6*max_landmarks+k];
-//     }
-// }
+        dest[i] = source[i];
+    }
+}
 
 
-// __global__ void resample(
-//     float *particles, float *new_particles, int block_size, int n_particles, float random)
-// {
-//     // return;
-//     int block_id = blockIdx.x+ blockIdx.y * gridDim.x;
-//     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
-
-//     // if(thread_id == 0) {
-//     //     printf("dfgdfgd\n");
-//     // }
-
-//     int particle_size = 6 + 7*((int)particles[4]);
-//     int id_min = thread_id*block_size;
-//     int id_max = MIN(thread_id*block_size + (block_size - 1), n_particles - 1);
+__global__ void reset_weights(float *particles) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    float *particle = get_particle(particles, i);
+    particle[3] = 1.0/N_PARTICLES;
+}
 
 
-//     int size = (n_particles) * sizeof(float);
-//     float *cumsum;
+__global__ void systematic_resample(double *weights, double *cumsum, double rand, int *ancestors) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    
+    int left = ceil((cumsum[i]*N_PARTICLES - weights[i]*N_PARTICLES) - rand);
+    int right = ceil((cumsum[i]*N_PARTICLES) - rand);
 
-//     cumsum = (float *)malloc(size);
-//     cumsum[0] = get_particle(particles, 0)[3];
+    for(int j = left; j < right; j++) {
+        ancestors[j] = i;
+    }
+}
 
-//     for(int i = 1; i < n_particles; i++) {
-//         cumsum[i] = cumsum[i-1] + get_particle(particles, i)[3];
-//     }
+/*
+ * Calculates neff.
+ * Needs to run in a single block.
+ */
+ __global__ void get_neff(float *particles, double *neff) {
+    int idx = threadIdx.x + blockIdx.x * blockDim.x;
 
-//     cumsum[n_particles-1] = 1.0;
+    double square_sum = 0;
 
-//     int i = 0;
-//     int j = 0;
-//     while(i < n_particles) {
-//         if( ((i + random)/n_particles) < cumsum[j] ) {
+    for (int i = idx; i < N_PARTICLES; i += THREADS) {
+        float *particle = get_particle(particles, i);
+        square_sum += (double)particle[3] * (double)particle[3];
+    }
 
-//             if(i >= id_min && i <= id_max) {
-//                 float *new_particle = get_particle(new_particles, i);
-//                 float *old_particle = get_particle(particles, j);
+    __shared__ double r_square_sum[THREADS];
+    r_square_sum[idx] = square_sum;
 
-//                 // memcpy(new_particle, old_particle, particle_size);
+    __syncthreads();
 
-//             }
+    for (int size = THREADS/2; size > 0; size /= 2) {
+        if (idx < size) {
+            r_square_sum[idx] += r_square_sum[idx + size];
+        }
+        __syncthreads();
+    }
 
-//             if(i > id_max) {
-//                 break;
-//             }
-
-//             i += 1;
-//         } else {
-//             j += 1;
-//         }
-//     }
-
-//     free(cumsum);
-// }
+    if (idx == 0) {
+        *neff = 1.0/r_square_sum[0];
+    }
+}

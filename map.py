@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial import distance
 
 from plotting import plot_landmarks
-from particle import FlatParticle
+from particle3 import FlatParticle
 
 def kmeans(X, weights, initial_centroids, max_iterations=10):
     start = time.time()

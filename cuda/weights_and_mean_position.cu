@@ -36,12 +36,11 @@ __device__ float* get_particle(float *particles, int i) {
 /*
  * Extracts weights from particles.
  */
- __global__ void get_weights(float *particles, float *weights) {
-    int block_id = blockIdx.x + blockIdx.y * gridDim.x;
-    int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
+ __global__ void get_weights(float *particles, double *weights) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
 
-    float *particle = get_particle(particles, thread_id);
-    weights[thread_id] = particle[3];
+    float *particle = get_particle(particles, i);
+    weights[i] = (double)particle[3];
 }
 
 

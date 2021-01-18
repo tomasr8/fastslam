@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms
-from particle import FlatParticle
+from particle3 import FlatParticle
 
 def plot_history(ax, history, color='green'):
     for x, y, _ in history:

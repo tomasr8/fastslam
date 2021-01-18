@@ -3,7 +3,6 @@ import pycuda.driver as cuda
 from pycuda.compiler import SourceModule
 import pycuda.autoinit
 
-
 def preprocess_module(module: str, args: dict, no_extern_c=False):
     '''Replaces special markers <<...>> in cuda source code with
        values provided in the args dictionary.

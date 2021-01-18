@@ -26,15 +26,22 @@ __device__ void swap(int *a, int *b) {
     *b = tmp;
 }
 
+/**
+ * Permutes the ancestor vector so that ancestors[i] = i if i is in ancestors.
+ * Needs __syncthreads() so has to be run in a single block - can be circumvented by running the first part
+ * in a separate kernel and saving the result in global/shared memory
+ *
+ * Requires N_PARTICLES to be a multiple of THREADS - can be fixed by adding if blocks before and after __syncthreads();
+ */
 __global__ void permute(int *ancestors, int *aux, int block_size, int n) {
     int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
 
     for(int k = 0; k < block_size; k++) {
         int i = thread_id*block_size + k;
     
-        if(i >= n) {
-            return;
-        }
+        // if(i >= n) {
+        //     return;
+        // }
 
         bool end = is_end(ancestors, aux, i);
         __syncthreads();

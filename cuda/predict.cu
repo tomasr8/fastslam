@@ -58,7 +58,7 @@ __global__ void predict_from_model(float *particles, float ua, float ub, float s
     // curand_normal() samples from standard normal
     // to get a general N(mu, sigma), we use Y = mu + sigma*X,
     // though in our case mu=0.
-    particle[2] += ua + sigma_a * curand_normal(states[i]);
+    particle[2] += (ua * dt) + sigma_a * curand_normal(states[i]);
     particle[2] = fmod(particle[2], (float)(2*M_PI));
 
     float dist = (ub * dt) + sigma_b * curand_normal(states[i]);

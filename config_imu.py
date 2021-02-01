@@ -3,7 +3,7 @@ from utils import dotify
 
 config = {
     "SEED": 2,
-    "N": 512, # number of particles
+    "N": 8192, # number of particles
     "THREADS": 512, # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024, # available GPU heap size
     "THRESHOLD": 0.01,

@@ -4,7 +4,7 @@ import numpy as np
 import scipy
 import scipy.stats
 import matplotlib.pyplot as plt
-
+import json
 from plotting import (
     plot_connections, plot_history, plot_landmarks, plot_measurement,
     plot_particles_weight, plot_particles_grey, plot_confidence_ellipse,
@@ -17,12 +17,12 @@ from pycuda.compiler import SourceModule
 import pycuda.autoinit
 from pycuda.autoinit import context
 from pycuda.driver import limit
-
 from cuda.update3 import load_cuda_modules
 from sensor import Sensor
 from map import compute_map
+from vehicle import Vehicle
 from stats import Stats
-from config_imu import config
+from config_utias import config
 
 
 if __name__ == "__main__":
@@ -41,15 +41,10 @@ if __name__ == "__main__":
     print("Particles memory:", particles.nbytes / 1024, "KB")
 
     if PLOT:
-        fig, ax = plt.subplots(2, 1, figsize=(10, 5))
-        ax[0].axis('scaled')
-        ax[1].axis('scaled')
-
-    sensor = Sensor(
-        config.LANDMARKS, [],
-        config.sensor.VARIANCE, config.sensor.RANGE,
-        config.sensor.FOV, config.sensor.MISS_PROB, 0
-    )
+        fig, ax = plt.subplots(2, 1, figsize=(5, 10))
+        fig.tight_layout()
+        # ax[0].axis('scaled')
+        # ax[1].axis('scaled')
 
     cuda_particles = cuda.mem_alloc(4 * config.N * config.PARTICLE_SIZE)
     scratchpad_block_size = 2 * config.THREADS * config.MAX_LANDMARKS
@@ -83,37 +78,37 @@ if __name__ == "__main__":
 
 
     stats = Stats("Loop", "Resample", "Measurement")
-    stats.add_pose(config.START_POSITION, config.START_POSITION)
+    stats.add_pose(config.START_POSITION.tolist(), config.START_POSITION.tolist())
     print("starting..")
 
-    weights_history = []
+    print(config.GROUND_TRUTH.shape)
+    print(config.CONTROL.shape)
 
-    for i in range(config.ODOMETRY.shape[0]):
+
+    for i, (g, o) in enumerate(zip(config.GROUND_TRUTH, config.CONTROL)):
         stats.start_measuring("Loop")
-        # print(i)
+
+        if i % 100 == 0:
+            print(i)
 
         stats.start_measuring("Measurement")
-        pose = config.ODOMETRY[i]
 
-        measurements = sensor.get_noisy_measurements(pose)
-        visible_measurements = measurements["observed"]
-        missed_landmarks = measurements["missed"]
-        out_of_range_landmarks = measurements["outOfRange"]
+        t = g[0]
+        measurements = config.sensor.MEASUREMENTS[config.sensor.MEASUREMENTS[:, 0] == t]
+        measurements = measurements[:, [2,3]].astype(np.float32)
 
-        measured_pose = [
-            pose[0] + np.random.normal(0, config.ODOMETRY_VARIANCE[0]),
-            pose[1] + np.random.normal(0, config.ODOMETRY_VARIANCE[1]),
-            pose[2] + np.random.normal(0, config.ODOMETRY_VARIANCE[2])
-        ]
+        # if measurements.size > 0:
+        #     print(">>>>>>>>>>", measurements, "<<<<<<<<<<<")
 
         stats.stop_measuring("Measurement")
 
-        cuda.memcpy_htod(cuda_measurements, visible_measurements)
+        cuda.memcpy_htod(cuda_measurements, measurements.copy())
 
-        cuda_modules["predict"].get_function("predict_from_imu")(
+        cuda_modules["predict"].get_function("predict_from_model")(
             cuda_particles,
-            np.float32(measured_pose[0]), np.float32(measured_pose[1]), np.float32(measured_pose[2]),
-            np.float32(config.ODOMETRY_VARIANCE[0]), np.float32(config.ODOMETRY_VARIANCE[1]), np.float32(config.ODOMETRY_VARIANCE[2]),
+            np.float32(o[2]), np.float32(o[1]),
+            np.float32(config.CONTROL_VARIANCE[1]), np.float32(config.CONTROL_VARIANCE[0]),
+            np.float32(config.DT),
             block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
         )
 
@@ -121,7 +116,7 @@ if __name__ == "__main__":
             cuda_particles, np.int32(config.N//config.THREADS),
             cuda_scratchpad, np.int32(scratchpad_block_size),
             cuda_measurements,
-            np.int32(config.N), np.int32(len(visible_measurements)),
+            np.int32(config.N), np.int32(len(measurements)),
             cuda_cov, np.float32(config.THRESHOLD),
             np.float32(config.sensor.RANGE), np.float32(config.sensor.FOV),
             np.int32(config.MAX_LANDMARKS),
@@ -145,85 +140,38 @@ if __name__ == "__main__":
 
         cuda.memcpy_dtoh(host_mean_position, cuda_mean_position)
 
-        stats.add_pose(pose, host_mean_position.copy())
+        stats.add_pose(g[1:].tolist(), host_mean_position.copy().tolist())
 
-
-        # cuda_modules["kmeans"].get_function("initialize_centroids")(
-        #     cuda_old_particles, cuda_weights, np.int32(config.N), cuda_map, cuda_map_size,
-        #     block=(1, 1, 1)
-        # )
-
-        # n_centroids = np.zeros(1, dtype=np.int32)
-        # cuda.memcpy_dtoh(n_centroids, cuda_map_size)
-        # n_centroids = int(n_centroids[0])
-
-        # cuda_modules["kmeans"].get_function("relabel")(
-        #     cuda_old_particles, cuda_new_particles, cuda_map,
-        #     np.int32(BLOCK_SIZE), np.int32(config.N), np.int32(n_centroids),
-        #     block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-        # )
-
-        # cuda_modules["kmeans"].get_function("compute_centroids")(
-        #     cuda_old_particles, cuda_new_particles, cuda_map,
-        #     np.int32(config.N), np.int32(n_centroids),
-        #     block=(n_centroids, 1, 1)
-        # )
-
-        # centroids = np.zeros(config["landmarks"]["max_landmarks"]*2, dtype=np.float32)
-        # cuda.memcpy_dtoh(centroids, cuda_map)
-        # centroids = centroids.reshape((config["landmarks"]["max_landmarks"], 2))[:n_centroids]
-
-        if PLOT:
+        
+        if PLOT and i % 100 == 0:
+            s = time.time()
             cuda.memcpy_dtoh(particles, cuda_particles)
 
             ax[0].clear()
             ax[1].clear()
-            # ax[0].set_xlim([pose[0]-10, pose[0]+10])
-            # ax[0].set_ylim([pose[1]-10, pose[1]+10])
-            # ax[1].set_xlim([pose[0]-10, pose[0]+10])
-            # ax[1].set_ylim([pose[1]-10, pose[1]+10])
 
-            ax[0].set_xlim([-160, 10])
-            ax[0].set_ylim([-30, 50])
-            ax[1].set_xlim([-160, 10])
-            ax[1].set_ylim([-30, 50])
-            ax[0].set_axis_off()
-            ax[1].set_axis_off()
+            # ax[0].set_axis_off()
+            # ax[1].set_axis_off()
+            # ax[0].axis('scaled')
+            # ax[1].axis('scaled')
 
-            plot_sensor_fov(ax[0], pose, config.sensor.RANGE, config.sensor.FOV)
-            plot_sensor_fov(ax[1], pose, config.sensor.RANGE, config.sensor.FOV)
+            # plot_sensor_fov(ax[0], g[1:], config.sensor.RANGE, config.sensor.FOV)
+            # plot_sensor_fov(ax[1], g[1:], config.sensor.RANGE, config.sensor.FOV)
 
-            if(visible_measurements.size != 0):
-                plot_connections(ax[0], pose, visible_measurements + pose[:2])
+            if(measurements.size != 0):
+                plot_connections(ax[0], g[1:], measurements + g[1:3])
 
-            plot_landmarks(ax[0], config.LANDMARKS, color="blue", zorder=100)
-            plot_landmarks(ax[0], out_of_range_landmarks, color="black", zorder=101)
-            plot_history(ax[0], stats.ground_truth_path, color='green')
-            plot_history(ax[0], stats.predicted_path, color='orange')
+            plot_landmarks(ax[0], config.LANDMARKS[:, 1:], color="blue", zorder=100)
+            plot_history(ax[0], stats.ground_truth_path[::50], color='green')
+            plot_history(ax[0], stats.predicted_path[::50], color='orange')
             plot_particles_weight(ax[0], particles)
-            if(visible_measurements.size != 0):
-                plot_measurement(ax[0], pose[:2], visible_measurements, color="orange", zorder=103)
 
-            plot_landmarks(ax[0], missed_landmarks, color="red", zorder=102)
+            if(measurements.size != 0):
+                plot_measurement(ax[0], g[1:3], measurements, color="orange", zorder=103)
 
             best = np.argmax(FlatParticle.w(particles))
-            plot_landmarks(ax[1], config.LANDMARKS, color="black")
-            # plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
+            plot_landmarks(ax[1], config.LANDMARKS[:, 1:], color="black")
             covariances = FlatParticle.get_covariances(particles, best)
-
-            # n = 200
-            # cmap = plt.cm.get_cmap("hsv", n)
-            # print("n_landmarks:", [len(FlatParticle.get_landmarks(particles, i)) for i in np.argsort(-FlatParticle.w(particles))[:n]])
-            # for n, i in enumerate(np.argsort(-FlatParticle.w(particles))[:n]):
-            #     plot_map(ax[1], FlatParticle.get_landmarks(particles, i), color=cmap(n), marker=".")
-
-            # plt.pause(5)
-
-            # centroids = compute_map(particles)
-            # plot_map(ax[1], centroids, color="orange", marker="o")
-
-            # for i, landmark in enumerate(centroids):
-            #     plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
             plot_map(ax[1], FlatParticle.get_landmarks(particles, best), color="orange", marker="o")
 
@@ -231,6 +179,7 @@ if __name__ == "__main__":
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
             plt.pause(0.01)
+            print(time.time() - s)
 
 
 
@@ -239,7 +188,6 @@ if __name__ == "__main__":
             block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
         )
         cuda.memcpy_dtoh(weights, cuda_weights)
-        weights_history.append(weights)
 
         neff = FlatParticle.neff(weights)
         if neff < 0.6*config.N:
@@ -286,4 +234,12 @@ if __name__ == "__main__":
         stats.stop_measuring("Loop")
 
     stats.summary()
-    np.save("weights.npy", weights_history)
+
+    output = {
+        "ground": stats.ground_truth_path,
+        "predicted": stats.predicted_path,
+        "landmarks": config.LANDMARKS[:, 1:].tolist()
+    }
+
+    with open("out.json", "w") as f:
+        json.dump(output, f)

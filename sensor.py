@@ -1,7 +1,7 @@
 import numpy as np
 
 class Sensor(object):
-    def __init__(self, landmarks, phantom_landmarks, measurement_variance, range, fov, miss_prob, phantom_prob):
+    def __init__(self, landmarks, phantom_landmarks, measurement_variance, range, fov, miss_prob, phantom_prob, rb=False):
         self.landmarks = landmarks
         self.phantom_landmarks = phantom_landmarks
         self.measurement_variance = measurement_variance
@@ -9,6 +9,7 @@ class Sensor(object):
         self.fov = fov
         self.miss_prob = miss_prob
         self.phantom_prob = phantom_prob
+        self.rb = False
 
 
     def __get_noisy_measurement(self, position, landmark):
@@ -20,6 +21,15 @@ class Sensor(object):
         vector_to_landmark[1] += b
 
         return vector_to_landmark
+
+    def __get_noisy_rb_measurement(self, pose, landmark):
+        position = pose[:2]
+        vector_to_landmark = np.array(landmark - position, dtype=np.float32)
+
+        range = np.linalg.norm(vector_to_landmark)
+        bearing = np.arctan2(vector_to_landmark[1], vector_to_landmark[0]) - pose[2]
+
+        return [range, bearing]
 
 
     def get_noisy_measurements(self, pose):
@@ -34,7 +44,10 @@ class Sensor(object):
         position = pose[:2]
 
         for i, landmark in enumerate(self.landmarks):
-            z = self.__get_noisy_measurement(position, landmark)
+            if self.rb:
+                z = self.__get_noisy_rb_measurement(pose, landmark)
+            else:
+                z = self.__get_noisy_measurement(position, landmark)
 
             coin_toss = np.random.uniform(0, 1)
             if self.__in_sensor_range(landmark, pose):
@@ -44,16 +57,6 @@ class Sensor(object):
                     measurements["missed"] = np.vstack((measurements["missed"], [landmark]))
             else:
                 measurements["outOfRange"] = np.vstack((measurements["outOfRange"], [landmark]))
-
-
-        # for landmark in self.phantom_landmarks:
-        #     z = self.__get_noisy_measurement(position, landmark, measurement_variance)
-
-        #     coin_toss = np.random.uniform(0, 1)
-        #     if self.__in_sensor_range(landmark) and coin_toss < self.phantom_prob:
-        #         measurements["phantomSeen"] = np.vstack((measurements["phantomSeen"], [z]))
-        #     else:
-        #         measurements["phantomNotSeen"] = np.vstack((measurements["phantomNotSeen"], [z]))
 
 
         for key in measurements:

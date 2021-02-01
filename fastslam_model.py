@@ -88,6 +88,8 @@ if __name__ == "__main__":
     stats.add_pose(config.START_POSITION, config.START_POSITION)
     print("starting..")
 
+    weights_history = []
+
     for i in range(config.CONTROL.shape[0]):
         stats.start_measuring("Loop")
         print(i)
@@ -231,7 +233,7 @@ if __name__ == "__main__":
             block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
         )
         cuda.memcpy_dtoh(weights, cuda_weights)
-
+        weights_history.append(weights)
 
         neff = FlatParticle.neff(weights)
         if neff < 0.6*config.N:
@@ -278,3 +280,4 @@ if __name__ == "__main__":
         stats.stop_measuring("Loop")
 
     stats.summary()
+    np.save("weights2.npy", weights_history)

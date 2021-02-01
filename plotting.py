@@ -4,15 +4,8 @@ import matplotlib.transforms as transforms
 from particle3 import FlatParticle
 
 def plot_history(ax, history, color='green'):
-    for x, y, _ in history:
-        ax.plot([x], [y], marker='o', markersize=3, color=color)
-
-    if len(history) > 1:
-        for i in range(len(history) - 1):
-            x, y, _ = history[i]
-            a, b, _ = history[i + 1]
-            ax.plot([x, a], [y, b], color=color)
-     
+    history = np.array(history)
+    ax.plot(history[:, 0], history[:, 1], '-o', markersize=3, color=color)
 
 def plot_landmarks(ax, landmarks, color='blue', zorder=0):
     ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color=color, zorder=zorder)

@@ -1,0 +1,43 @@
+Intro:
+	Formula Student
+	localization
+	mapping
+	SLAM
+	GPU?
+
+CUDA programming:
+	heterogenous programming
+	blocks
+	grids
+	threads
+	indexing
+	shared memory
+	global memory
+	__syncthreads
+	atomics
+		
+
+permute:
+	proofs
+	diagram
+	
+
+code:
+	languages
+	organization
+	pycuda, python, language-independent - C++ ..
+	preprocessing
+	documentation - sphinx
+	testing - unit tests, regression tests
+
+graph based SLAM
+
+
+fs online
+	only model
+
+SLAM datasets
+
+history of SLAM
+
+

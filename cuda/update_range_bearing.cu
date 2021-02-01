@@ -53,6 +53,18 @@ __device__ bool in_large_sensor_range(float *position, float *landmark, float ra
     return dist_sq < range*range;
 }
 
+__device__ void to_coords(float *particle, float *in, float *out) {
+    float x = particle[0];
+    float y = particle[1];
+    float theta = particle[2];
+
+    float range = in[0];
+    float bearing = in[1];
+
+    out[0] = x + range * cos(bearing + theta);
+    out[1] = y + range * sin(bearing + theta);
+}
+
 __device__ float* get_particle(float *particles, int i) {
     int max_landmarks = (int)particles[4];
     return (particles + (6 + 7*max_landmarks)*i);
@@ -178,6 +190,27 @@ __device__ void matmul(float *A, float *B, float *C)
     C[3] = c*f + d*h;
 }
 
+__device__ void matmul_jacobian(float *H, float *E, float *R, float *S)
+{
+    float a = H[0];
+    float b = H[1];
+    float c = H[2];
+    float d = H[3];
+
+    float Ht[] = {
+        a, c,
+        b, d
+    };
+
+    matmul(Ht, E, S);
+    matmul(S, H, S);
+
+    S[0] += R[0];
+    S[1] += R[1];
+    S[2] += R[2];
+    S[3] += R[3];
+}
+
 __device__ void pinv(float *A, float *B)
 {
     float a = A[0];
@@ -228,47 +261,66 @@ __device__ void add_measurements_as_landmarks(float *particle, landmark_measurem
     float *measurement_cov = measurements->measurement_cov;
 
     for(int i = 0; i < n_measurements; i++) {
-        float x = particle[0];
-        float y = particle[1];
-        float measurement[] = {
-            x + measurements->measurements[i][0],
-            y + measurements->measurements[i][1]
-        };
-
-        add_landmark(particle, measurement, measurement_cov);
+        add_measurement_as_landmark(particle, measurements->measurements[i], measurement_cov);
     }
 }
 
 __device__ void add_measurement_as_landmark(float *particle, float *measurement, float *measurement_cov)
 {
-    float x = particle[0];
-    float y = particle[1];
-    float landmark[] = {
-        x + measurement[0],
-        y + measurement[1]
+    float pos[] = { particle[0], particle[1] };
+    float theta = particle[2];
+    float landmark[] = {0, 0};
+    to_coords(particle, measurement, landmark);
+
+    float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
+
+    float H[] = {
+        (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
+        (landmark[0] - pos[0])/q, -(landmark[1] - pos[1])/q
     };
 
-    add_landmark(particle, landmark, measurement_cov);
+    float Ht[] = {
+        H[0], H[2],
+        H[1], H[3]
+    };
+
+    pinv(H, H);
+
+    float S[] = {
+        0, 0, 0, 0
+    };
+
+    matmul(H, measurement_cov, S);
+    matmul(S, Ht, S);
+
+    add_landmark(particle, landmark, S);
 }
 
 __device__ float compute_dist(float *particle, int i, float *measurement, float *measurement_cov)
 {
     float pos[] = { particle[0], particle[1] };
+    float theta = particle[2];
     float *landmark_cov = get_cov(particle, i);
     float *landmark = get_mean(particle, i);
 
+    float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
+
     float measurement_predicted[] = {
-        landmark[0] - pos[0], landmark[1] - pos[1]
+        sqrt(q), atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta
     };
 
-    float cov[4] = {
-        landmark_cov[0] + measurement_cov[0],
-        landmark_cov[1] + measurement_cov[1],
-        landmark_cov[2] + measurement_cov[2],
-        landmark_cov[3] + measurement_cov[3]
+    float H[] = {
+        (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
+        -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q,
     };
 
-    return pdf(measurement_predicted, measurement, cov);
+    float S[] = {
+        0, 0, 0, 0
+    };
+
+    matmul_jacobian(H, landmark_cov, measurement_cov, S);
+
+    return pdf(measurement_predicted, measurement, S);
     // return mahalanobis(measurement_predicted, measurement, cov);
 }
 
@@ -294,10 +346,6 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         // }
     }
 
-    // if(id == 0) {
-    //     printf("in range: %d/%d \n", n_in_range, n_landmarks);
-    // }
-
     for(int i = 0; i < n_measurements; i++) {
         float best = -1;
         int best_idx = -1;
@@ -321,43 +369,56 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
 
 
         if(best_idx != -1) {
-            float *mean = get_mean(particle, best_idx);
-            float mean_x = mean[0];
-            float mean_y = mean[1];
+            float *landmark = get_mean(particle, best_idx);
+            float pos[] = { particle[0], particle[1] };
+            // float mean_x = mean[0];
+            // float mean_y = mean[1];
 
-            float measurement_predicted[2] = { mean_x - x, mean_y - y };
+            float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
+            float measurement_predicted[] = {
+                sqrt(q), atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta
+            };
+
             float residual[2] = {
                 measurements->measurements[i][0] - measurement_predicted[0],
                 measurements->measurements[i][1] - measurement_predicted[1]
             };
 
+            float H[] = {
+                (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
+                -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q,
+            };
+        
+            float S[] = {
+                0, 0, 0, 0
+            };
+        
+            matmul_jacobian(H, landmark_cov, measurement_cov, S);
+            float S_inv[] = {0, 0, 0, 0};
+            pinv(S, S_inv);
+
             float *cov = get_cov(particle, best_idx);
 
-            float Q[4] = {
-                cov[0] + measurement_cov[0],
-                cov[1] + measurement_cov[1],
-                cov[2] + measurement_cov[2],
-                cov[3] + measurement_cov[3]
-            };
-
-            float K[4] = { 0, 0, 0, 0 };
-            float Q_inv[4] = { 0, 0, 0, 0 };
-            pinv(Q, Q_inv);
-            matmul(cov, Q_inv, K);
+            float Q[] = {0, 0, 0, 0};
+            float K[] = { 0, 0, 0, 0 };
+            matmul(cov, H, Q);
+            matmul(Q, S_inv, K);
 
             float K_residual[] = { 0, 0 };
             vecmul(K, residual, K_residual);
-            mean[0] += K_residual[0];
-            mean[1] += K_residual[1];
+            landmark[0] += K_residual[0];
+            landmark[1] += K_residual[1];
 
-            float new_cov[] = { 1 - K[0], K[1], K[2], 1 - K[3] };
+            float KH[] = { 0, 0, 0, 0};
+            matmul(K, H, KH);
+            float new_cov[] = { 1 - KH[0], KH[1], KH[2], 1 - KH[3] };
             matmul(new_cov, cov, new_cov);
             cov[0] = new_cov[0];
             cov[1] = new_cov[1];
             cov[2] = new_cov[2];
             cov[3] = new_cov[3];
 
-            particle[3] *= pdf(measurements->measurements[i], measurement_predicted, Q);
+            particle[3] *= pdf(measurements->measurements[i], measurement_predicted, S);
             increment_landmark_prob(particle, best_idx);
         } else {
             add_measurement_as_landmark(particle, measurements->measurements[i], measurement_cov);

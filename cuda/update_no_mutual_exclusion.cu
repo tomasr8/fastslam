@@ -146,6 +146,32 @@ __device__ void remove_landmark(float *particle, int i)
     particle[5] = (float)(n_landmarks - 1);
 }
 
+__device__ void remove_landmark2(float *particle, int i)
+{
+    int n_landmarks = (int)particle[5];
+
+    float *mean_a = get_mean(particle, i);
+    float *mean_b = get_mean(particle, n_landmarks - 1);
+
+    mean_a[0] = mean_b[0];
+    mean_a[1] = mean_b[1];
+
+    float *cov_a = get_cov(particle, i);
+    float *cov_b = get_cov(particle, n_landmarks - 1);
+
+    cov_a[0] = cov_b[0];
+    cov_a[1] = cov_b[1];
+    cov_a[2] = cov_b[2];
+    cov_a[3] = cov_b[3];
+
+    float *prob_a = get_landmark_prob(particle, i);
+    float *prob_b = get_landmark_prob(particle, n_landmarks - 1);
+
+    prob_a[0] = prob_b[0];
+    
+    particle[5] = (float)(n_landmarks - 1);
+}
+
 __device__ void vecmul(float *A, float *u, float *v)
 {
     float a = A[0];
@@ -195,21 +221,17 @@ __device__ void pinv(float *A, float *B)
 
 __device__ float pdf(float *x, float *mean, float* cov)
 {
-    float a = cov[0];
-    float b = cov[1];
+    float cov_inv[] = {0, 0, 0, 0};
+    pinv(cov, cov_inv);
 
-    float logdet = log(a*a - b*b);
-
-    float root = sqrt(2.0)/2.0;
-    float e = root * (1.0/sqrt(a-b));
-    float f = root * (1.0/sqrt(a+b));
+    float scalar = 1/(2*M_PI*sqrt(cov[0]*cov[3] - cov[1]*cov[2]));
 
     float m = x[0] - mean[0];
     float n = x[1] - mean[1];
 
-    float maha = 2*(m*m*e*e + n*n*f*f);
-    float log2pi = log(2 * M_PI);
-    return exp(-0.5 * (2*log2pi + maha + logdet));
+    float arg = m*m*(cov_inv[0]) + n*n*(cov_inv[3]) + m*n*(cov_inv[1] + cov_inv[2]);
+
+    return scalar * exp(-0.5 * arg);
 }
 
 __device__ float mahalanobis(float *u, float *v, float* cov) {
@@ -235,6 +257,8 @@ __device__ void add_measurements_as_landmarks(float *particle, landmark_measurem
             y + measurements->measurements[i][1]
         };
 
+        // printf("adding %f %f \n", measurement[0], measurement[1]);
+        // printf("adding %f %f %f %f \n", measurement_cov[0], measurement_cov[1], measurement_cov[2], measurement_cov[3]);
         add_landmark(particle, measurement, measurement_cov);
     }
 }
@@ -298,12 +322,14 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     //     printf("in range: %d/%d \n", n_in_range, n_landmarks);
     // }
 
+    // printf("START n_in_range(%d), n_landmarks(%d)\n", n_in_range, n_landmarks);
     for(int i = 0; i < n_measurements; i++) {
         float best = -1;
         int best_idx = -1;
 
         for(int j = 0; j < n_in_range; j++) {
             float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
+            // printf("dist[%d, %d] = %f\n", j, i, dist);
 
             if(dist > thresh && dist > best) {
                 best = dist;
@@ -318,6 +344,8 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         if(best_idx != -1) {
             n_matches[best_idx]++;
         }
+
+        // printf("Measurement(%d) matched to (%d)\n", i, best_idx);
 
 
         if(best_idx != -1) {
@@ -350,7 +378,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
             mean[0] += K_residual[0];
             mean[1] += K_residual[1];
 
-            float new_cov[] = { 1 - K[0], K[1], K[2], 1 - K[3] };
+            float new_cov[] = { 1 - K[0], -K[1], -K[2], 1 - K[3] };
             matmul(new_cov, cov, new_cov);
             cov[0] = new_cov[0];
             cov[1] = new_cov[1];
@@ -374,9 +402,17 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     //         }
     //     } 
     // }
-}
 
-// __shared__ int scratchpad_mem[<<SCRATCHPAD_SIZE>>];
+    // n_landmarks = get_n_landmarks(particle);
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     float *mean = get_mean(particle, i);
+    //     printf("landmark(%d) = [%f, %f]\n", i, mean[0], mean[1]);
+    // }
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     float *cov = get_cov(particle, i);
+    //     printf("cov(%d) = [%f, %f, %f, %f]\n", i, cov[0], cov[1], cov[2], cov[3]);
+    // }
+}
 
 __global__ void update(
     float *particles, int block_size, int *scratchpad_mem, int scratchpad_size, float measurements_array[][2], int n_particles, int n_measurements,
@@ -387,6 +423,8 @@ __global__ void update(
     if(n_measurements == 0) {
         return;
     }
+
+    // printf("n_measurements(%d)\n", n_measurements);
 
     int block_id = blockIdx.x + blockIdx.y * gridDim.x;
     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;

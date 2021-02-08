@@ -202,8 +202,8 @@ __device__ void matmul_jacobian(float *H, float *E, float *R, float *S)
         b, d
     };
 
-    matmul(Ht, E, S);
-    matmul(S, H, S);
+    matmul(H, E, S);
+    matmul(S, Ht, S);
 
     S[0] += R[0];
     S[1] += R[1];
@@ -231,29 +231,90 @@ __device__ float pdf(float *x, float *mean, float* cov)
     float a = cov[0];
     float b = cov[1];
 
+    printf("a^2-b^2(%f)\n", a*a - b*b);
+
     float logdet = log(a*a - b*b);
+
+    printf("logdet(%f)\n", logdet);
 
     float root = sqrt(2.0)/2.0;
     float e = root * (1.0/sqrt(a-b));
     float f = root * (1.0/sqrt(a+b));
 
+    printf("e(%f) f(%f)\n", e, f);
+
     float m = x[0] - mean[0];
     float n = x[1] - mean[1];
 
     float maha = 2*(m*m*e*e + n*n*f*f);
+    printf("maha(%f)\n", maha);
     float log2pi = log(2 * M_PI);
     return exp(-0.5 * (2*log2pi + maha + logdet));
 }
 
-__device__ float mahalanobis(float *u, float *v, float* cov) {
-    float inv[4] = { 0, 0, 0, 0 };
-    pinv(cov, inv);
+__device__ float pdf2(float *x, float *mean, float* cov)
+{
+    float cov_inv[] = {0, 0, 0, 0};
+    pinv(cov, cov_inv);
 
-    float x = u[0] - v[0];
-    float y = u[1] - v[1];
+    // printf("cov_inv[%f, %f, %f, %f]\n",
+    //     cov_inv[0], cov_inv[1], cov_inv[2], cov_inv[3]
+    // );
 
-    return x*x*cov[0] + x*y*(cov[1] + cov[2]) + y*y*cov[3];
+    float scalar = 1/(2*M_PI*sqrt(cov[0]*cov[3] - cov[1]*cov[2]));
+
+    float m = x[0] - mean[0];
+    float n = x[1] - mean[1];
+
+    // float arg = m*m*(cov_inv[0] + cov_inv[2]) + n*n*(cov_inv[1] + cov_inv[3]);
+    float arg = m*m*(cov_inv[0]) + n*n*(cov_inv[3]) + m*n*(cov_inv[1] + cov_inv[2]);
+
+    // printf("scalar(%f) arg(%f)\n", scalar, arg);
+    return scalar * exp(-0.5 * arg);
 }
+
+__device__ void add_measurement_as_landmark(float *particle, float *measurement, float *measurement_cov)
+{
+    float pos[] = { particle[0], particle[1] };
+    float landmark[] = {0, 0};
+    to_coords(particle, measurement, landmark);
+
+    float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
+
+    float H[] = {
+        (landmark[0] - pos[0])/(2*sqrt(q)), (landmark[1] - pos[1])/(2*sqrt(q)),
+        -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q
+    };
+
+    // printf("m %f %f \n", measurement[0], measurement[1]);
+    // printf("lm %f %f \n", landmark[0], landmark[1]);
+    // printf("R %f %f %f %f \n", measurement_cov[0], measurement_cov[1], measurement_cov[2], measurement_cov[3]);
+    // printf("H [%f, %f, %f, %f] \n", H[0], H[1], H[2], H[3]);
+
+    pinv(H, H);
+    // printf("Hinv %f %f %f %f \n", H[0], H[1], H[2], H[3]);
+
+    float H_inv_t[] = {
+        H[0], H[2],
+        H[1], H[3]
+    };
+
+    float S[] = {
+        0, 0, 0, 0
+    };
+
+    matmul(H, measurement_cov, S);
+    // printf("S1 %f %f %f %f \n", S[0], S[1], S[2], S[3]);
+    matmul(S, H_inv_t, S);
+    // printf("S [%f, %f, %f, %f] \n", S[0], S[1], S[2], S[3]);
+
+    // printf("pos[%f, %f, %f], m[%f, %f]\n", particle[0], particle[1], particle[2], measurement[0], measurement[1]);
+    // printf("adding landmark [%f, %f] [%f, %f, %f, %f]\n", landmark[0], landmark[1], S[0], S[1], S[2], S[3]);
+    // printf("=\n");
+
+    add_landmark(particle, landmark, S);
+}
+
 
 __device__ void add_measurements_as_landmarks(float *particle, landmark_measurements *measurements)
 {
@@ -265,36 +326,6 @@ __device__ void add_measurements_as_landmarks(float *particle, landmark_measurem
     }
 }
 
-__device__ void add_measurement_as_landmark(float *particle, float *measurement, float *measurement_cov)
-{
-    float pos[] = { particle[0], particle[1] };
-    float theta = particle[2];
-    float landmark[] = {0, 0};
-    to_coords(particle, measurement, landmark);
-
-    float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
-
-    float H[] = {
-        (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
-        (landmark[0] - pos[0])/q, -(landmark[1] - pos[1])/q
-    };
-
-    float Ht[] = {
-        H[0], H[2],
-        H[1], H[3]
-    };
-
-    pinv(H, H);
-
-    float S[] = {
-        0, 0, 0, 0
-    };
-
-    matmul(H, measurement_cov, S);
-    matmul(S, Ht, S);
-
-    add_landmark(particle, landmark, S);
-}
 
 __device__ float compute_dist(float *particle, int i, float *measurement, float *measurement_cov)
 {
@@ -303,6 +334,21 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
     float *landmark_cov = get_cov(particle, i);
     float *landmark = get_mean(particle, i);
 
+    // float coords[] = {0, 0};
+    // to_coords(particle, measurement, coords);
+
+    // printf("landmark[%f, %f], measurement[%f, %f], cov[%f, %f, %f, %f]\n",
+    //     landmark[0], landmark[1], coords[0], coords[1], landmark_cov[0], landmark_cov[1], landmark_cov[2], landmark_cov[3]
+    // );
+
+    // float measurement_predicted[] = {
+    //     landmark[0] - pos[0], landmark[1] - pos[1]
+    // };
+
+    // coords[0] -= pos[0];
+    // coords[1] -= pos[1];
+
+
     float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
 
     float measurement_predicted[] = {
@@ -310,8 +356,8 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
     };
 
     float H[] = {
-        (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
-        -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q,
+        (landmark[0] - pos[0])/(2*sqrt(q)), (landmark[1] - pos[1])/(2*sqrt(q)),
+        -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q
     };
 
     float S[] = {
@@ -320,8 +366,15 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
 
     matmul_jacobian(H, landmark_cov, measurement_cov, S);
 
-    return pdf(measurement_predicted, measurement, S);
-    // return mahalanobis(measurement_predicted, measurement, cov);
+    // printf("S(%d) = [%f, %f, %f, %f]\n", i, S[0], S[1], S[2], S[3]);
+    // printf("[%f, %f] [%f, %f] [%f, %f, %f, %f]\n",
+    //     measurement_predicted[0], measurement_predicted[1], measurement[0], measurement[1],
+    //     landmark_cov[0], landmark_cov[1], landmark_cov[2], landmark_cov[3]
+    // );
+    // printf("pdf(%f)\n", pdf2(landmark, coords, landmark_cov));
+    // return pdf2(landmark, coords, landmark_cov);
+    return pdf2(measurement_predicted, measurement, S);
+
 }
 
 
@@ -330,8 +383,6 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     float *measurement_cov = measurements->measurement_cov;
     int n_measurements = measurements->n_measurements;
 
-    float x = particle[0];
-    float y = particle[1];
     int n_landmarks = get_n_landmarks(particle);
 
     int n_in_range = 0;
@@ -346,12 +397,14 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         // }
     }
 
+    // printf("START n_in_range(%d), n_landmarks(%d)\n", n_in_range, n_landmarks);
     for(int i = 0; i < n_measurements; i++) {
         float best = -1;
         int best_idx = -1;
 
         for(int j = 0; j < n_in_range; j++) {
             float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
+            // printf("dist[%d, %d] = %f\n", j, i, dist);
 
             if(dist > thresh && dist > best) {
                 best = dist;
@@ -368,11 +421,12 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
         }
 
 
+        // printf("Measurement(%d) matched to (%d)\n", i, best_idx);
+
         if(best_idx != -1) {
             float *landmark = get_mean(particle, best_idx);
             float pos[] = { particle[0], particle[1] };
-            // float mean_x = mean[0];
-            // float mean_y = mean[1];
+            float theta = particle[2];
 
             float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
             float measurement_predicted[] = {
@@ -384,24 +438,32 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
                 measurements->measurements[i][1] - measurement_predicted[1]
             };
 
+            // printf("residual[%f, %f]\n", residual[0], residual[1]);
+
             float H[] = {
-                (landmark[0] - pos[0])/sqrt(q), (landmark[1] - pos[1])/sqrt(q),
-                -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q,
+                (landmark[0] - pos[0])/(2*sqrt(q)), (landmark[1] - pos[1])/(2*sqrt(q)),
+                -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q
             };
-        
+
+            float Ht[] = {
+                H[0], H[2],
+                H[1], H[3]
+            };
+
             float S[] = {
                 0, 0, 0, 0
             };
+
+            float *landmark_cov = get_cov(particle, best_idx);
         
             matmul_jacobian(H, landmark_cov, measurement_cov, S);
             float S_inv[] = {0, 0, 0, 0};
             pinv(S, S_inv);
 
-            float *cov = get_cov(particle, best_idx);
 
             float Q[] = {0, 0, 0, 0};
             float K[] = { 0, 0, 0, 0 };
-            matmul(cov, H, Q);
+            matmul(landmark_cov, Ht, Q);
             matmul(Q, S_inv, K);
 
             float K_residual[] = { 0, 0 };
@@ -411,20 +473,84 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
 
             float KH[] = { 0, 0, 0, 0};
             matmul(K, H, KH);
-            float new_cov[] = { 1 - KH[0], KH[1], KH[2], 1 - KH[3] };
-            matmul(new_cov, cov, new_cov);
-            cov[0] = new_cov[0];
-            cov[1] = new_cov[1];
-            cov[2] = new_cov[2];
-            cov[3] = new_cov[3];
+            float new_cov[] = { 1 - KH[0], -KH[1], -KH[2], 1 - KH[3] };
+            matmul(new_cov, landmark_cov, new_cov);
+            landmark_cov[0] = new_cov[0];
+            landmark_cov[1] = new_cov[1];
+            landmark_cov[2] = new_cov[2];
+            landmark_cov[3] = new_cov[3];
 
-            particle[3] *= pdf(measurements->measurements[i], measurement_predicted, S);
+            // printf("new cov(%d) [%f, %f, %f, %f]\n", i,
+            //     landmark_cov[0], landmark_cov[1], landmark_cov[2], landmark_cov[3]
+            // );
+
+            particle[3] *= pdf2(measurements->measurements[i], measurement_predicted, S);
             increment_landmark_prob(particle, best_idx);
+
+            // float *landmark = get_mean(particle, best_idx);
+            // float pos[] = { particle[0], particle[1] };
+            // float theta = particle[2];
+
+            // float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
+            // float measurement_predicted[] = {
+            //     sqrt(q), atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta
+            // };
+
+            // float residual[2] = {
+            //     measurements->measurements[i][0] - measurement_predicted[0],
+            //     measurements->measurements[i][1] - measurement_predicted[1]
+            // };
+
+            // float H[] = {
+            //     (landmark[0] - pos[0])/(2*sqrt(q)), (landmark[1] - pos[1])/(2*sqrt(q)),
+            //     -(landmark[1] - pos[1])/q, (landmark[0] - pos[0])/q
+            // };
+
+            // float Ht[] = {
+            //     H[0], H[2],
+            //     H[1], H[3]
+            // };
+
+            // float S[] = {
+            //     0, 0, 0, 0
+            // };
+
+            // float *landmark_cov = get_cov(particle, best_idx);
+        
+            // matmul_jacobian(H, landmark_cov, measurement_cov, S);
+            // float S_inv[] = {0, 0, 0, 0};
+            // pinv(S, S_inv);
+
+
+            // float Q[] = {0, 0, 0, 0};
+            // float K[] = { 0, 0, 0, 0 };
+            // matmul(landmark_cov, H, Q);
+            // matmul(Q, S_inv, K);
+
+            // float K_residual[] = { 0, 0 };
+            // vecmul(K, residual, K_residual);
+            // landmark[0] += K_residual[0];
+            // landmark[1] += K_residual[1];
+
+            // float KH[] = { 0, 0, 0, 0};
+            // matmul(K, Ht, KH);
+            // float new_cov[] = { 1 - KH[0], -KH[1], -KH[2], 1 - KH[3] };
+            // matmul(new_cov, landmark_cov, new_cov);
+            // landmark_cov[0] = new_cov[0];
+            // landmark_cov[1] = new_cov[1];
+            // landmark_cov[2] = new_cov[2];
+            // landmark_cov[3] = new_cov[3];
+
+            // // printf("new cov(%d) [%f, %f, %f, %f]\n", i,
+            // //     landmark_cov[0], landmark_cov[1], landmark_cov[2], landmark_cov[3]
+            // // );
+
+            // particle[3] *= pdf2(measurements->measurements[i], measurement_predicted, S);
+            // increment_landmark_prob(particle, best_idx);
         } else {
             add_measurement_as_landmark(particle, measurements->measurements[i], measurement_cov);
         }
     }
-
     // for(int i = n_in_range - 1; i > 0; i--) {
     //     int idx = in_range[i];
     //     if(n_matches[idx] == 0) {
@@ -434,6 +560,16 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     //             remove_landmark(particle, idx);
     //         }
     //     } 
+    // }
+
+    // n_landmarks = get_n_landmarks(particle);
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     float *mean = get_mean(particle, i);
+    //     printf("landmark(%d) = [%f, %f]\n", i, mean[0], mean[1]);
+    // }
+    // for(int i = 0; i < n_landmarks; i++) {
+    //     float *cov = get_cov(particle, i);
+    //     printf("cov(%d) = [%f, %f, %f, %f]\n", i, cov[0], cov[1], cov[2], cov[3]);
     // }
 }
 
@@ -448,6 +584,8 @@ __global__ void update(
     if(n_measurements == 0) {
         return;
     }
+
+    // printf("n_measurements(%d)\n", n_measurements);
 
     int block_id = blockIdx.x + blockIdx.y * gridDim.x;
     int thread_id = block_id * (blockDim.x * blockDim.y) + (threadIdx.y * blockDim.x) + threadIdx.x;
@@ -478,9 +616,28 @@ __global__ void update(
     
         if(n_landmarks == 0) {
             add_measurements_as_landmarks(particle, &measurements);
+            // n_landmarks = get_n_landmarks(particle);
+            // for(int i = 0; i < n_landmarks; i++) {
+            //     float *mean = get_mean(particle, i);
+            //     printf("landmark(%d) = [%f, %f]\n", i, mean[0], mean[1]);
+            // }
+            // for(int i = 0; i < n_landmarks; i++) {
+            //     float *cov = get_cov(particle, i);
+            //     printf("cov(%d) = [%f, %f, %f, %f]\n", i, cov[0], cov[1], cov[2], cov[3]);
+            // }
             continue;
         }
 
         update_landmarks(particle_id, particle, &measurements, in_range, n_matches, range, fov, threshold);
+
+        // n_landmarks = get_n_landmarks(particle);
+        // for(int i = 0; i < n_landmarks; i++) {
+        //     float *mean = get_mean(particle, i);
+        //     printf("landmark(%d) = [%f, %f]\n", i, mean[0], mean[1]);
+        // }
+        // for(int i = 0; i < n_landmarks; i++) {
+        //     float *cov = get_cov(particle, i);
+        //     printf("cov(%d) = [%f, %f, %f, %f]\n", i, cov[0], cov[1], cov[2], cov[3]);
+        // }
     }
 }

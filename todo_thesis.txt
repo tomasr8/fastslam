@@ -32,6 +32,11 @@ code:
 
 graph based SLAM
 
+Mapping:
+	best particle
+	Kmeans
+	GMM
+
 
 fs online
 	only model

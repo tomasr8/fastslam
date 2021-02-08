@@ -9,7 +9,7 @@ class Sensor(object):
         self.fov = fov
         self.miss_prob = miss_prob
         self.phantom_prob = phantom_prob
-        self.rb = False
+        self.rb = rb
 
 
     def __get_noisy_measurement(self, position, landmark):
@@ -26,10 +26,13 @@ class Sensor(object):
         position = pose[:2]
         vector_to_landmark = np.array(landmark - position, dtype=np.float32)
 
-        range = np.linalg.norm(vector_to_landmark)
-        bearing = np.arctan2(vector_to_landmark[1], vector_to_landmark[0]) - pose[2]
+        r = np.linalg.norm(vector_to_landmark)
+        b = np.arctan2(vector_to_landmark[1], vector_to_landmark[0]) - pose[2]
 
-        return [range, bearing]
+        r += np.random.normal(0, self.measurement_variance[0])
+        b += np.random.normal(0, self.measurement_variance[1])
+
+        return [r, b]
 
 
     def get_noisy_measurements(self, pose):

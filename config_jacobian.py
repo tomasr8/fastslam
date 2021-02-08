@@ -3,16 +3,16 @@ from utils import dotify
 
 config = {
     "SEED": 2,
-    "N": 8192,  # number of particles
+    "N": 1024,  # number of particles
     "DT": 0.5,
     "THREADS": 512,  # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
-    "THRESHOLD": 0.05,
+    "THRESHOLD": 0.0001,
     "sensor": {
         "RANGE": 5,
         "FOV": np.pi,
         "MISS_PROB": 0,  # probability landmark in range will be missed
-        "VARIANCE": [0.05, 0.05],
+        "VARIANCE": [0.01, 0.002],
         "MAX_MEASUREMENTS": 50  # upper bound on the total number of simultaneous measurements
     },
     "CONTROL": np.vstack((

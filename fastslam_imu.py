@@ -20,15 +20,11 @@ from pycuda.driver import limit
 
 from cuda.update3 import load_cuda_modules
 from sensor import Sensor
-from map import compute_map
 from stats import Stats
+from common import CUDAMemory, resample, rescale, get_pose_estimate
 from config_imu import config
 
-
-if __name__ == "__main__":
-    # visualization
-    PLOT = False
-
+def run_SLAM(plot=False):
     np.random.seed(config.SEED)
 
     context.set_limit(limit.MALLOC_HEAP_SIZE, config.GPU_HEAP_SIZE_BYTES)
@@ -40,7 +36,7 @@ if __name__ == "__main__":
     particles = FlatParticle.get_initial_particles(config.N, config.MAX_LANDMARKS, config.START_POSITION, sigma=0.2)
     print("Particles memory:", particles.nbytes / 1024, "KB")
 
-    if PLOT:
+    if plot:
         fig, ax = plt.subplots(2, 1, figsize=(10, 5))
         ax[0].axis('scaled')
         ax[1].axis('scaled')
@@ -51,46 +47,30 @@ if __name__ == "__main__":
         config.sensor.FOV, config.sensor.MISS_PROB, 0
     )
 
-    cuda_particles = cuda.mem_alloc(4 * config.N * config.PARTICLE_SIZE)
-    scratchpad_block_size = 2 * config.THREADS * config.MAX_LANDMARKS
-    cuda_scratchpad = cuda.mem_alloc(4 * scratchpad_block_size)
-    cuda_measurements = cuda.mem_alloc(4 * 2 * config.sensor.MAX_MEASUREMENTS)
-    cuda_weights = cuda.mem_alloc(8 * config.N)
-    cuda_ancestors = cuda.mem_alloc(4 * config.N)
-    cuda_ancestors_aux = cuda.mem_alloc(4 * config.N)
-    cuda_map = cuda.mem_alloc(4 * 2 * config.MAX_LANDMARKS)
-    cuda_map_size = cuda.mem_alloc(4)
-    cuda_rescale_sum = cuda.mem_alloc(8)
-    cuda_cov = cuda.mem_alloc(4 * 4)
-    cuda_mean_position = cuda.mem_alloc(4 * 3)
-    cuda_cumsum = cuda.mem_alloc(8 * config.N)
+    memory = CUDAMemory(config)
     weights = np.zeros(config.N, dtype=np.float64)
-    host_mean_position = np.zeros(3, dtype=np.float32)
 
     cuda_modules = load_cuda_modules(
         THREADS=config.THREADS,
         PARTICLE_SIZE=config.PARTICLE_SIZE,
-        N_PARTICLES=config.N,
-        SCRATCHPAD_SIZE=scratchpad_block_size
+        N_PARTICLES=config.N
     )
 
-    cuda.memcpy_htod(cuda_cov, config.sensor.COVARIANCE)
-    cuda.memcpy_htod(cuda_particles, particles)
+    cuda.memcpy_htod(memory.cov, config.sensor.COVARIANCE)
+    cuda.memcpy_htod(memory.particles, particles)
 
     cuda_modules["predict"].get_function("init_rng")(
         np.int32(config.SEED), block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
     )
 
 
-    stats = Stats("Loop", "Resample", "Measurement")
+    stats = Stats("Loop", "Measurement")
     stats.add_pose(config.START_POSITION, config.START_POSITION)
     print("starting..")
 
-    weights_history = []
-
     for i in range(config.ODOMETRY.shape[0]):
         stats.start_measuring("Loop")
-        # print(i)
+        print(i)
 
         stats.start_measuring("Measurement")
         pose = config.ODOMETRY[i]
@@ -108,81 +88,36 @@ if __name__ == "__main__":
 
         stats.stop_measuring("Measurement")
 
-        cuda.memcpy_htod(cuda_measurements, visible_measurements)
+        cuda.memcpy_htod(memory.measurements, visible_measurements)
 
         cuda_modules["predict"].get_function("predict_from_imu")(
-            cuda_particles,
+            memory.particles,
             np.float32(measured_pose[0]), np.float32(measured_pose[1]), np.float32(measured_pose[2]),
             np.float32(config.ODOMETRY_VARIANCE[0]), np.float32(config.ODOMETRY_VARIANCE[1]), np.float32(config.ODOMETRY_VARIANCE[2]),
             block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
         )
 
         cuda_modules["update"].get_function("update")(
-            cuda_particles, np.int32(config.N//config.THREADS),
-            cuda_scratchpad, np.int32(scratchpad_block_size),
-            cuda_measurements,
+            memory.particles, np.int32(config.N//config.THREADS),
+            memory.scratchpad, np.int32(memory.scratchpad_block_size),
+            memory.measurements,
             np.int32(config.N), np.int32(len(visible_measurements)),
-            cuda_cov, np.float32(config.THRESHOLD),
+            memory.cov, np.float32(config.THRESHOLD),
             np.float32(config.sensor.RANGE), np.float32(config.sensor.FOV),
             np.int32(config.MAX_LANDMARKS),
             block=(config.THREADS, 1, 1)
         )
 
-        cuda_modules["rescale"].get_function("sum_weights")(
-            cuda_particles, cuda_rescale_sum,
-            block=(config.THREADS, 1, 1)
-        )
+        rescale(cuda_modules, config, memory)
+        estimate =  get_pose_estimate(cuda_modules, config, memory)
 
-        cuda_modules["rescale"].get_function("divide_weights")(
-            cuda_particles, cuda_rescale_sum,
-            block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-        )
+        stats.add_pose(pose, estimate)
 
-        cuda_modules["weights_and_mean"].get_function("get_mean_position")(
-            cuda_particles, cuda_mean_position,
-            block=(config.THREADS, 1, 1)
-        )
-
-        cuda.memcpy_dtoh(host_mean_position, cuda_mean_position)
-
-        stats.add_pose(pose, host_mean_position.copy())
-
-
-        # cuda_modules["kmeans"].get_function("initialize_centroids")(
-        #     cuda_old_particles, cuda_weights, np.int32(config.N), cuda_map, cuda_map_size,
-        #     block=(1, 1, 1)
-        # )
-
-        # n_centroids = np.zeros(1, dtype=np.int32)
-        # cuda.memcpy_dtoh(n_centroids, cuda_map_size)
-        # n_centroids = int(n_centroids[0])
-
-        # cuda_modules["kmeans"].get_function("relabel")(
-        #     cuda_old_particles, cuda_new_particles, cuda_map,
-        #     np.int32(BLOCK_SIZE), np.int32(config.N), np.int32(n_centroids),
-        #     block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-        # )
-
-        # cuda_modules["kmeans"].get_function("compute_centroids")(
-        #     cuda_old_particles, cuda_new_particles, cuda_map,
-        #     np.int32(config.N), np.int32(n_centroids),
-        #     block=(n_centroids, 1, 1)
-        # )
-
-        # centroids = np.zeros(config["landmarks"]["max_landmarks"]*2, dtype=np.float32)
-        # cuda.memcpy_dtoh(centroids, cuda_map)
-        # centroids = centroids.reshape((config["landmarks"]["max_landmarks"], 2))[:n_centroids]
-
-        if PLOT:
-            cuda.memcpy_dtoh(particles, cuda_particles)
+        if plot:
+            cuda.memcpy_dtoh(particles, memory.particles)
 
             ax[0].clear()
             ax[1].clear()
-            # ax[0].set_xlim([pose[0]-10, pose[0]+10])
-            # ax[0].set_ylim([pose[1]-10, pose[1]+10])
-            # ax[1].set_xlim([pose[0]-10, pose[0]+10])
-            # ax[1].set_ylim([pose[1]-10, pose[1]+10])
-
             ax[0].set_xlim([-160, 10])
             ax[0].set_ylim([-30, 50])
             ax[1].set_xlim([-160, 10])
@@ -208,22 +143,7 @@ if __name__ == "__main__":
 
             best = np.argmax(FlatParticle.w(particles))
             plot_landmarks(ax[1], config.LANDMARKS, color="black")
-            # plot_landmarks(ax[1], FlatParticle.get_landmarks(particles, best), color="orange")
             covariances = FlatParticle.get_covariances(particles, best)
-
-            # n = 200
-            # cmap = plt.cm.get_cmap("hsv", n)
-            # print("n_landmarks:", [len(FlatParticle.get_landmarks(particles, i)) for i in np.argsort(-FlatParticle.w(particles))[:n]])
-            # for n, i in enumerate(np.argsort(-FlatParticle.w(particles))[:n]):
-            #     plot_map(ax[1], FlatParticle.get_landmarks(particles, i), color=cmap(n), marker=".")
-
-            # plt.pause(5)
-
-            # centroids = compute_map(particles)
-            # plot_map(ax[1], centroids, color="orange", marker="o")
-
-            # for i, landmark in enumerate(centroids):
-            #     plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
             plot_map(ax[1], FlatParticle.get_landmarks(particles, best), color="orange", marker="o")
 
@@ -235,55 +155,20 @@ if __name__ == "__main__":
 
 
         cuda_modules["weights_and_mean"].get_function("get_weights")(
-            cuda_particles, cuda_weights,
+            memory.particles, memory.weights,
             block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
         )
-        cuda.memcpy_dtoh(weights, cuda_weights)
-        weights_history.append(weights)
+        cuda.memcpy_dtoh(weights, memory.weights)
 
         neff = FlatParticle.neff(weights)
         if neff < 0.6*config.N:
-            rand = 0.5
-            stats.start_measuring("Resample")
-            cumsum = np.cumsum(weights)
-
-            cuda.memcpy_htod(cuda_cumsum, cumsum)
-            stats.stop_measuring("Resample")
-
-            cuda_modules["resample"].get_function("systematic_resample")(
-                cuda_weights, cuda_cumsum, np.float64(rand), cuda_ancestors,
-                block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-            )
-
-            cuda_modules["permute"].get_function("reset")(
-                cuda_ancestors_aux,
-                block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-            )
-
-            cuda_modules["permute"].get_function("compute_positions")(
-                cuda_ancestors,
-                cuda_ancestors_aux,
-                block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-            )
-
-            cuda_modules["permute"].get_function("permute")(
-                cuda_ancestors,
-                cuda_ancestors_aux,
-                np.int32(config.N//config.THREADS), np.int32(config.N),
-                block=(config.THREADS, 1, 1)
-            )
-
-            cuda_modules["resample"].get_function("copy_inplace")(
-                cuda_particles, cuda_ancestors,
-                block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-            )
-
-            cuda_modules["resample"].get_function("reset_weights")(
-                cuda_particles,
-                block=(config.THREADS, 1, 1), grid=(config.N//config.THREADS, 1, 1)
-            )
+            resample(cuda_modules, config, weights, memory, 0.5)
 
         stats.stop_measuring("Loop")
 
     stats.summary()
-    np.save("weights.npy", weights_history)
+    return stats.mean_path_deviation()
+
+
+if __name__ == "__main__":
+    run_SLAM(plot=False)

@@ -1,5 +1,8 @@
 import numpy as np
 
+def wrap_angle(angle):
+    return np.arctan2(np.sin(angle), np.cos(angle))
+
 class Sensor(object):
     def __init__(self, landmarks, phantom_landmarks, measurement_variance, range, fov, miss_prob, phantom_prob, rb=False):
         self.landmarks = landmarks
@@ -28,6 +31,7 @@ class Sensor(object):
 
         r = np.linalg.norm(vector_to_landmark)
         b = np.arctan2(vector_to_landmark[1], vector_to_landmark[0]) - pose[2]
+        b = wrap_angle(b)
 
         r += np.random.normal(0, self.measurement_variance[0])
         b += np.random.normal(0, self.measurement_variance[1])

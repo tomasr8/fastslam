@@ -13,9 +13,9 @@ def plot_landmarks(ax, landmarks, color='blue', zorder=0):
 def plot_map(ax, landmarks, color='blue', marker="."):
     ax.scatter(landmarks[:, 0], landmarks[:, 1], s=10, marker=marker, color=color)
 
-def plot_measurement(ax, pos, landmarks, color, zorder):
+def plot_measurement(ax, pos, landmarks, color, zorder, size=20):
     landmarks = landmarks + pos
-    ax.scatter(landmarks[:, 0], landmarks[:, 1], s=20, marker='o', color=color, zorder=zorder)
+    ax.scatter(landmarks[:, 0], landmarks[:, 1], s=size, marker='o', color=color, zorder=zorder)
 
 
 def plot_connections(ax, s, landmarks, color='purple'):

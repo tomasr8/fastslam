@@ -19,7 +19,6 @@ from pycuda.driver import limit
 
 from cuda.update_jacobian import load_cuda_modules
 from sensor import Sensor
-from map import compute_map
 from vehicle import Vehicle
 from stats import Stats
 from config_jacobian import config
@@ -214,7 +213,7 @@ if __name__ == "__main__":
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
                 # print("cov", covariances[i])
 
-            plt.pause(0.1)
+            plt.pause(0.01)
             # plt.show()
 
         # raise Exception

@@ -12,6 +12,9 @@ Jacobians
 O(1) delete landmark
 ✅ fix pdf
 ✅ fix Kalman gain
-use ref resample
+✅ use ref resample
 test suite
 extract and compare kmeans and GMM
+utias fake sensor Jacobian
+utias beginning association Jacobian
+vytahnout homografii pro cecha

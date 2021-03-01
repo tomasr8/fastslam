@@ -23,9 +23,13 @@ from vehicle import Vehicle
 from stats import Stats
 from common import CUDAMemory, resample, rescale, get_pose_estimate
 from config_model import config
+from utils import repeat
 
-def run_SLAM(plot=False):
-    np.random.seed(config.SEED)
+def run_SLAM(plot=False, seed=None):
+    if seed is None:
+        np.random.seed(config.SEED)
+    else:
+        np.random.seed(seed)
 
     context.set_limit(limit.MALLOC_HEAP_SIZE, config.GPU_HEAP_SIZE_BYTES)
 
@@ -116,8 +120,8 @@ def run_SLAM(plot=False):
 
             ax[0].clear()
             ax[1].clear()
-            ax[0].set_axis_off()
-            ax[1].set_axis_off()
+            # ax[0].set_axis_off()
+            # ax[1].set_axis_off()
             ax[0].axis('scaled')
             ax[1].axis('scaled')
 
@@ -170,4 +174,5 @@ def run_SLAM(plot=False):
 
 
 if __name__ == "__main__":
-    run_SLAM(plot=False)
+    repeat(run_SLAM, times=100, seed=0)
+    # run_SLAM(plot=True)

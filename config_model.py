@@ -3,11 +3,11 @@ from utils import dotify
 
 config = {
     "SEED": 2,
-    "N": 8192,  # number of particles
+    "N": 8,  # number of particles
     "DT": 0.5,
-    "THREADS": 512,  # number threads in a block
+    "THREADS": 8,  # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
-    "THRESHOLD": 0.05,
+    "THRESHOLD": 0.005,
     "sensor": {
         "RANGE": 5,
         "FOV": np.pi,
@@ -20,7 +20,7 @@ config = {
         np.tile([0.06, 0.7], (100, 1))
     )),
     "CONTROL_VARIANCE": [0.05, 0.1],
-    "LANDMARKS": np.loadtxt("landmarks.txt").astype(np.float32),  # landmark positions
+    "LANDMARKS": np.loadtxt("landmarks4.txt").astype(np.float32),  # landmark positions
     "MAX_LANDMARKS": 250,  # upper bound on the total number of landmarks in the environment
     "START_POSITION": np.array([8, 3, 0], dtype=np.float32)
 }

@@ -42,6 +42,9 @@ def load_cuda_modules(**args):
     with open("cuda/permute.cu", "r") as f:
         permute = f.read()
 
+    with open("cuda/permute_ref.cu", "r") as f:
+        permute_ref = f.read()
+
     return {
         "predict": preprocess_module(predict, args, no_extern_c=True),
         "update": preprocess_module(update, args),
@@ -49,5 +52,6 @@ def load_cuda_modules(**args):
         "resample": preprocess_module(resample, args),
         "weights_and_mean": preprocess_module(weights_and_mean, args),
         "kmeans": preprocess_module(kmeans, args),
-        "permute": preprocess_module(permute, args)
+        "permute": preprocess_module(permute, args),
+        "permute_ref": preprocess_module(permute_ref, args)
     }

@@ -17,13 +17,15 @@ from pycuda.compiler import SourceModule
 import pycuda.autoinit
 from pycuda.autoinit import context
 from pycuda.driver import limit
-
-from cuda.update3 import load_cuda_modules
+from cuda.update_jacobian import load_cuda_modules
 from sensor import Sensor
 from vehicle import Vehicle
 from stats import Stats
 from common import CUDAMemory, resample, rescale, get_pose_estimate
-from config_utias import config
+from config_utias_rb import config
+
+def to_coords(range, bearing, theta):
+    return [range * np.cos(bearing + theta), range * np.sin(bearing + theta)]
 
 def run_SLAM(plot=False):
     np.random.seed(config.SEED)
@@ -106,7 +108,7 @@ def run_SLAM(plot=False):
 
         stats.add_pose(g[1:].tolist(), estimate.tolist())
         
-        if plot and i % 100 == 0:
+        if plot and i % 5000 == 0:
             cuda.memcpy_dtoh(particles, memory.particles)
 
             ax[0].clear()
@@ -114,6 +116,9 @@ def run_SLAM(plot=False):
 
             # plot_sensor_fov(ax[0], g[1:], config.sensor.RANGE, config.sensor.FOV)
             # plot_sensor_fov(ax[1], g[1:], config.sensor.RANGE, config.sensor.FOV)
+
+            measurements = [to_coords(r, b, g[3]) for r, b in measurements]
+            measurements = np.array(measurements)
 
             if(measurements.size != 0):
                 plot_connections(ax[0], g[1:], measurements + g[1:3])
@@ -135,7 +140,7 @@ def run_SLAM(plot=False):
             for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            plt.pause(0.001)
+            plt.pause(0.01)
 
 
         cuda_modules["weights_and_mean"].get_function("get_weights")(

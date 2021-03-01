@@ -13,6 +13,15 @@ typedef struct
     float *measurement_cov;
 } landmark_measurements;
 
+__device__ float mod_angle(float angle) {
+    // angle = angle * 180.0 / M_PI;
+    // angle = fmod(fmod(angle + 180.0, 360.0) + 360, 360.0) - 180;
+    // angle = min + wrapMax(x - min, max - min)
+    // angle = angle * M_PI / 180.0;
+    // return angle;
+    return atan2(sin(angle), cos(angle));
+}
+
 __device__ float vecnorm(float *v) {
     return sqrt(v[0]*v[0] + v[1]*v[1]);
 }
@@ -352,7 +361,7 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
     float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
 
     float measurement_predicted[] = {
-        sqrt(q), atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta
+        sqrt(q), mod_angle(atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta)
     };
 
     float H[] = {
@@ -367,7 +376,7 @@ __device__ float compute_dist(float *particle, int i, float *measurement, float 
     matmul_jacobian(H, landmark_cov, measurement_cov, S);
 
     // printf("S(%d) = [%f, %f, %f, %f]\n", i, S[0], S[1], S[2], S[3]);
-    // printf("[%f, %f] [%f, %f] [%f, %f, %f, %f]\n",
+    // printf("MP[%f, %f] M[%f, %f] S[%f, %f, %f, %f]\n",
     //     measurement_predicted[0], measurement_predicted[1], measurement[0], measurement[1],
     //     landmark_cov[0], landmark_cov[1], landmark_cov[2], landmark_cov[3]
     // );
@@ -406,7 +415,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
             float dist = compute_dist(particle, in_range[j], measurements->measurements[i], measurement_cov);
             // printf("dist[%d, %d] = %f\n", j, i, dist);
 
-            if(dist > thresh && dist > best) {
+            if(dist >= thresh && dist > best) {
                 best = dist;
                 best_idx = in_range[j];
             }
@@ -430,7 +439,7 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
 
             float q = (landmark[0] - pos[0])*(landmark[0] - pos[0]) + (landmark[1] - pos[1])*(landmark[1] - pos[1]);
             float measurement_predicted[] = {
-                sqrt(q), atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta
+                sqrt(q), mod_angle(atan2(landmark[1] - pos[1], landmark[0] - pos[0]) - theta)
             };
 
             float residual[2] = {
@@ -572,8 +581,6 @@ __device__ void update_landmarks(int id, float *particle, landmark_measurements 
     //     printf("cov(%d) = [%f, %f, %f, %f]\n", i, cov[0], cov[1], cov[2], cov[3]);
     // }
 }
-
-// __shared__ int scratchpad_mem[<<SCRATCHPAD_SIZE>>];
 
 __global__ void update(
     float *particles, int block_size, int *scratchpad_mem, int scratchpad_size, float measurements_array[][2], int n_particles, int n_measurements,

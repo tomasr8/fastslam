@@ -22,8 +22,8 @@ config = {
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
     "THRESHOLD": 0.01,
     "sensor": {
-        "RANGE": 6,
-        "FOV": 2*np.pi,
+        "RANGE": 4,
+        "FOV": 0.5*np.pi,
         "MISS_PROB": 0.05,
         "VARIANCE": [0.15, 0.15],
         "MAX_MEASUREMENTS": 20, # upper bound on the total number of simultaneous measurements

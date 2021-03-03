@@ -4,6 +4,8 @@ import json
 
 track = np.load("track.npy")
 
+print(track)
+
 # with open("odom.json") as f:
 #     odom = json.load(f)
 
@@ -31,12 +33,14 @@ track = np.load("track.npy")
 
 odometry = np.load("odom.npy")
 
-blue = track[track[:, 2] == 0]
-yellow = track[track[:, 2] == 1]
+# blue = track[track[:, 2] == 0]
+# yellow = track[track[:, 2] == 1]
 
 
-plt.scatter(blue[:, 0], blue[:, 1])
-plt.scatter(yellow[:, 0], yellow[:, 1])
+# plt.scatter(blue[:, 0], blue[:, 1])
+# plt.scatter(yellow[:, 0], yellow[:, 1])
+
+plt.scatter(track[:, 0], track[:, 1])
 
 plt.scatter(odometry[::20, 0], odometry[::20, 1], s=1)
 plt.axis("equal")

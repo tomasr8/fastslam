@@ -33,8 +33,7 @@ config = {
     "GROUND_TRUTH": ground.astype(np.float32),
     "LANDMARKS": landmarks.astype(np.float32),  # landmark positions
     "MAX_LANDMARKS": 100,  # upper bound on the total number of landmarks in the environment
-    "START_POSITION": ground[0, 1:].astype(np.float32),
-    
+    "START_POSITION": ground[0, 1:].astype(np.float32)
 }
 
 config = dotify(config)

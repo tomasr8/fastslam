@@ -4,7 +4,13 @@ import json
 
 def min_dist(arr, stamp):
     arr = np.abs(arr - stamp)
-    return np.argmin(arr)
+
+    argmin = np.argmin(arr)
+    print("min:", np.min(arr))
+    if arr[argmin] < 100:
+        return argmin
+    else:
+        return None
 
 
 track = np.load("track.npy")
@@ -37,18 +43,27 @@ ax.scatter(track[:, 0], track[:, 1])
 
 stamps = np.array([d['stamp'] for d in detections])
 
+print(np.min(stamps), np.max(stamps))
+print(np.min(odom[:, -1]), np.max(odom[:, -1]))
+
+
 for o in odom:
     stamp = o[-1]
+    print(stamp)
 
-    d = detections[min_dist(stamps, stamp)]
-    print(stamp, d['stamp'])
+    argmin = min_dist(stamps, stamp)
+    if argmin is not None:
+        print("plotting")
+        d = detections[argmin]
+        # print(stamp, d['stamp'])
 
-    points = np.array(d['points'])[:, :2]
+        points = np.array(d['points'])[:, :2]
 
-    points[:, [0, 1]] = points[:, [1, 0]]
-    points[:, 1] +=2
-    points[:, 0] *= -1
+        points[:, [0, 1]] = points[:, [1, 0]]
+        points[:, 1] +=2
+        points[:, 0] *= -1
 
-    ax.scatter(points[:, 0], points[:, 1], c="g")
+        ax.scatter(points[:, 0], points[:, 1], c="g")
+
     ax.scatter([o[0]], [o[1]], c="r")
-    plt.pause(0.0001)
+    plt.pause(.01)

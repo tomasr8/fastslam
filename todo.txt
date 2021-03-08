@@ -16,5 +16,5 @@ O(1) delete landmark
 test suite
 extract and compare kmeans and GMM
 utias fake sensor Jacobian
-utias beginning association Jacobian
-vytahnout homografii pro cecha
+✅ utias beginning association Jacobian
+✅ vytahnout homografii pro Honzu Cecha

@@ -21,7 +21,7 @@ config = {
         "MEASUREMENTS": measurements,
     },
     "ODOMETRY": odometry,
-    "ODOMETRY_VARIANCE": [0.1, 0.1, 0.05],
+    "ODOMETRY_VARIANCE": [0.2, 0.2, 0.05],
     "LANDMARKS": np.load("fsonline/track.npy").astype(np.float32), # landmark positions
     "MAX_LANDMARKS": 250, # upper bound on the total number of landmarks in the environment
     "START_POSITION": odometry[0, :3]

@@ -15,6 +15,9 @@ O(1) delete landmark
 ✅ use ref resample
 test suite
 extract and compare kmeans and GMM
+implement Kmeans or GMM or both
 utias fake sensor Jacobian
 ✅ utias beginning association Jacobian
 ✅ vytahnout homografii pro Honzu Cecha
+✅ fsonline full pipeline 
+Nsight Compute

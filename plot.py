@@ -10,14 +10,14 @@ from plotting import (
     plot_sensor_fov, plot_map
 )
 
-with open("out.json") as f:
+with open("out3.json") as f:
     output = json.load(f)
 
 
 fig, ax = plt.subplots()
 
-ground = np.array(output["ground"][::100])
-predicted = np.array(output["predicted"][::100])
+ground = np.array(output["ground"][::200])
+predicted = np.array(output["predicted"][::200])
 
 print(ground.shape)
 

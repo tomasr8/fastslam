@@ -69,6 +69,9 @@ def run_SLAM(plot=False):
         # if i % 100 == 0:
             # print(i)
 
+        # if i > 1000:
+        #     break
+
         stats.start_measuring("Measurement")
 
         t = g[0]
@@ -76,7 +79,6 @@ def run_SLAM(plot=False):
         # print(measurements)
         # print("================")
         measurements = measurements[:, [2,3]].astype(np.float32)
-
 
         stats.stop_measuring("Measurement")
 
@@ -106,11 +108,18 @@ def run_SLAM(plot=False):
 
         stats.add_pose(g[1:].tolist(), estimate.tolist())
         
-        if plot and i % 100 == 0:
+        if plot and measurements.size > 0:# and i % 10 == 0:
             cuda.memcpy_dtoh(particles, memory.particles)
 
             ax[0].clear()
             ax[1].clear()
+
+            ax[0].text(0, 5.5, f"Iteration: {i}")
+
+            # if measurements.size > 0:
+            #     print(measurements + g[1:3])
+            #     print()
+            # print(estimate.tolist())
 
             # plot_sensor_fov(ax[0], g[1:], config.sensor.RANGE, config.sensor.FOV)
             # plot_sensor_fov(ax[1], g[1:], config.sensor.RANGE, config.sensor.FOV)
@@ -135,7 +144,7 @@ def run_SLAM(plot=False):
             for i, landmark in enumerate(FlatParticle.get_landmarks(particles, best)):
                 plot_confidence_ellipse(ax[1], landmark, covariances[i], n_std=3)
 
-            plt.pause(0.001)
+            plt.pause(0.002)
 
 
         cuda_modules["weights_and_mean"].get_function("get_weights")(
@@ -158,7 +167,7 @@ def run_SLAM(plot=False):
         "landmarks": config.LANDMARKS[:, 1:].tolist()
     }
 
-    with open("out.json", "w") as f:
+    with open("out3.json", "w") as f:
         json.dump(output, f)
 
     return stats.mean_path_deviation()

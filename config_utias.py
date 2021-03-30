@@ -3,7 +3,7 @@ from utils import dotify
 
 START = 1000
 T = 1000.0
-robot = 1
+robot = 3
 
 ground = np.load(f"utias/npy/ground_{robot}_50hz.npy")[START:]
 odom = np.load(f"utias/npy/odom_{robot}_50hz.npy")[START:]

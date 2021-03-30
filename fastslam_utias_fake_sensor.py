@@ -177,4 +177,4 @@ def run_SLAM(plot=False):
 
 
 if __name__ == "__main__":
-    run_SLAM(plot=True)
+    run_SLAM(plot=False)

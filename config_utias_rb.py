@@ -3,7 +3,7 @@ from utils import dotify
 
 START = 1000
 T = 1000.0
-robot = 1
+robot = 3
 
 ground = np.load(f"utias/npy/ground_{robot}_50hz.npy")[START:]
 odom = np.load(f"utias/npy/odom_{robot}_50hz.npy")[START:]
@@ -16,23 +16,23 @@ measurements = measurements[measurements[:, 0] < T]
 
 config = {
     "SEED": 1,
-    "N": 8192,  # number of particles
+    "N": 4096,  # number of particles
     "DT": 0.02,
     "THREADS": 512,  # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
-    "THRESHOLD": 0.00001,
+    "THRESHOLD": 0.01,
     "sensor": {
         "RANGE": 6,
         "FOV": 2*np.pi,
-        "VARIANCE": [0.1, 0.01],
+        "VARIANCE": [0.05, 0.002],
         "MAX_MEASUREMENTS": 20, # upper bound on the total number of simultaneous measurements
         "MEASUREMENTS": measurements.astype(np.float32),
     },
     "CONTROL": odom.astype(np.float32),
-    "CONTROL_VARIANCE": [0.01, 0.01],
+    "CONTROL_VARIANCE": [0.015, 0.015],
     "GROUND_TRUTH": ground.astype(np.float32),
     "LANDMARKS": landmarks.astype(np.float32),  # landmark positions
-    "MAX_LANDMARKS": 100,  # upper bound on the total number of landmarks in the environment
+    "MAX_LANDMARKS": 30,  # upper bound on the total number of landmarks in the environment
     "START_POSITION": ground[0, 1:].astype(np.float32)
 }
 

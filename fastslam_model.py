@@ -159,9 +159,9 @@ def run_SLAM(plot=False, seed=None):
         )
         cuda.memcpy_dtoh(weights, memory.weights)
 
-        if i == config.CONTROL.shape[0]-1:
-            cuda.memcpy_dtoh(particles, memory.particles)
-            np.save("particles.npy", particles)
+        # if i == config.CONTROL.shape[0]-1:
+        #     cuda.memcpy_dtoh(particles, memory.particles)
+        #     np.save("particles.npy", particles)
 
         neff = FlatParticle.neff(weights)
         if neff < 0.6*config.N:
@@ -174,5 +174,5 @@ def run_SLAM(plot=False, seed=None):
 
 
 if __name__ == "__main__":
-    repeat(run_SLAM, times=100, seed=0)
-    # run_SLAM(plot=True)
+    # repeat(run_SLAM, times=100, seed=0)
+    run_SLAM(plot=True)

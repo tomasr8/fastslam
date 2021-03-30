@@ -30,7 +30,7 @@ config = {
         "MEASUREMENTS": measurements.astype(np.float32),
     },
     "CONTROL": odom.astype(np.float32),
-    "CONTROL_VARIANCE": [0.01, 0.01],
+    "CONTROL_VARIANCE": [0.015, 0.015],
     "GROUND_TRUTH": ground.astype(np.float32),
     "LANDMARKS": landmarks.astype(np.float32),  # landmark positions
     "MAX_LANDMARKS": 30,  # upper bound on the total number of landmarks in the environment

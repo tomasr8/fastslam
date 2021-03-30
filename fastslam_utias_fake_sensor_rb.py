@@ -176,11 +176,11 @@ def run_SLAM(plot=False):
         "landmarks": config.LANDMARKS[:, 1:].tolist()
     }
 
-    with open("out.json", "w") as f:
+    with open("out2.json", "w") as f:
         json.dump(output, f)
 
     return stats.mean_path_deviation()
 
 
 if __name__ == "__main__":
-    run_SLAM(plot=True)
+    run_SLAM(plot=False)

@@ -35,6 +35,7 @@ class Sensor(object):
 
         r += np.random.normal(0, self.measurement_variance[0])
         b += np.random.normal(0, self.measurement_variance[1])
+        b = wrap_angle(b)
 
         return [r, b]
 
@@ -81,6 +82,10 @@ class Sensor(object):
         if np.linalg.norm(va) > self.range:
             return False
 
-        angle = np.arccos(np.dot(va, vb)/(np.linalg.norm(va)*np.linalg.norm(vb)))
+        arg = np.dot(va, vb)/(np.linalg.norm(va)*np.linalg.norm(vb))
+        arg = min(arg, 1)
+        arg = max(arg, -1)
+
+        angle = np.arccos(arg)
 
         return angle <= (self.fov/2)

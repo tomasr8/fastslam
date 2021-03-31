@@ -16,7 +16,7 @@ class Vehicle(object):
         if u[0] == 0.0 and u[1] == 0.0:
             return
 
-        theta += (u[0] + self.random.normal(0, self.movement_variance[0]))
+        theta += (u[0] * self.dt) + self.random.normal(0, self.movement_variance[0])
         theta %= (2*math.pi)
 
         dist = (u[1] * self.dt) + self.random.normal(0, self.movement_variance[1])

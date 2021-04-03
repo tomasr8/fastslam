@@ -14,12 +14,10 @@ def dotify(dictionary):
     })
 
 
-def repeat(slam, times=100, seed=0):
-    np.random.seed(seed)
-
+def repeat(slam, seeds):
     deviations = []
-    for _ in range(times):
-        deviation = slam(plot=False, seed=np.random.randint(0, 1e6))
+    for seed in seeds:
+        deviation = slam(plot=False, seed=seed)
         deviations.append(deviation)
 
     return np.mean(deviations), np.std(deviations)

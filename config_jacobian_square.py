@@ -3,27 +3,37 @@ from utils import dotify
 from cuda.update_jacobian_dist import load_cuda_modules
 
 config = {
-    "SEED": 0,
-    "N": 512,  # number of particles
+    "SEED": 1,
+    "N": 4096,  # number of particles
     "DT": 0.5,
     "THREADS": 512,  # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
-    "THRESHOLD": 0.7,
+    "THRESHOLD": 1.2,
     "sensor": {
         "RANGE": 5,
         "FOV": np.pi,
         "MISS_PROB": 0,  # probability landmark in range will be missed
-        "VARIANCE": [0.03, 0.002],
+        "VARIANCE": [0.05, 0.003],
         "MAX_MEASUREMENTS": 50  # upper bound on the total number of simultaneous measurements
     },
+    # "gps": {
+    #     "VARIANCE": [0.1, 0.1, 0.01],
+    #     "RATE": 50
+    # },
     "CONTROL": np.vstack((
         np.tile([0.0, 0.0], (15, 1)),
-        np.tile([0.12, 0.7], (100, 1))
+        np.tile([0.0, 0.5], (70, 1)),
+        np.tile([0.21, 0.0], (14, 1)),
+        np.tile([0.0, 0.5], (70, 1)),
+        np.tile([0.21, 0.0], (14, 1)),
+        np.tile([0.0, 0.5], (70, 1)),
+        np.tile([0.21, 0.0], (14, 1)),
+        np.tile([0.0, 0.5], (70, 1))
     )),
-    "CONTROL_VARIANCE": [0.01, 0.05],
-    "LANDMARKS": np.loadtxt("landmarks.txt").astype(np.float32),  # landmark positions
+    "CONTROL_VARIANCE": [0.02, 0.1],
+    "LANDMARKS": np.loadtxt("landmarks_square.txt").astype(np.float32),  # landmark positions
     "MAX_LANDMARKS": 250,  # upper bound on the total number of landmarks in the environment
-    "START_POSITION": np.array([8, 3, 0], dtype=np.float32)
+    "START_POSITION": np.array([1, 1, 0], dtype=np.float32)
 }
 
 config = dotify(config)

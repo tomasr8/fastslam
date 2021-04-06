@@ -3,9 +3,9 @@ from matplotlib.patches import Ellipse
 import matplotlib.transforms as transforms
 from particle3 import FlatParticle
 
-def plot_history(ax, history, color='green'):
+def plot_history(ax, history, color='green', markersize=3, linewidth=2, style="-o", label=None):
     history = np.array(history)
-    ax.plot(history[:, 0], history[:, 1], '-o', markersize=3, color=color)
+    ax.plot(history[:, 0], history[:, 1], style, markersize=markersize, color=color, linewidth=linewidth, label=label)
 
 def plot_landmarks(ax, landmarks, color='blue', zorder=0):
     ax.scatter(landmarks[:, 0], landmarks[:, 1], marker='x', color=color, zorder=zorder)

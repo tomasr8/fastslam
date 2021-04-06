@@ -4,7 +4,7 @@ from cuda.update3_dist import load_cuda_modules
 
 config = {
     "SEED": 1,
-    "N": 512,  # number of particles
+    "N": 8192,  # number of particles
     "DT": 0.5,
     "THREADS": 512,  # number threads in a block
     "GPU_HEAP_SIZE_BYTES": 100000 * 1024,  # available GPU heap size
@@ -30,7 +30,7 @@ config = {
         np.tile([0.21, 0.0], (14, 1)),
         np.tile([0.0, 0.5], (70, 1))
     )),
-    "CONTROL_VARIANCE": [0.01, 0.05],
+    "CONTROL_VARIANCE": [0.02, 0.1],
     "LANDMARKS": np.loadtxt("landmarks_square.txt").astype(np.float32),  # landmark positions
     "MAX_LANDMARKS": 250,  # upper bound on the total number of landmarks in the environment
     "START_POSITION": np.array([1, 1, 0], dtype=np.float32)
